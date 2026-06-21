@@ -1,0 +1,9 @@
+{
+  "/detector-api": {
+    "target": "http://localhost:5050",
+    "secure": false,
+    "pathRewrite": { "^/detector-api": "" },
+    "changeOrigin": true,
+    "logLevel": "warn"
+  }
+}
