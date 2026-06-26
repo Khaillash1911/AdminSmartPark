@@ -22,6 +22,10 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/parking-spots/parking-spots').then(m => m.ParkingSpotsPage)
       },
       {
+        path: 'find-my-car-test',
+        loadComponent: () => import('./pages/find-my-car-test/find-my-car-test').then(m => m.FindMyCarTestPage)
+      },
+      {
         path: 'view-data',
         loadComponent: () => import('./pages/view-data/view-data').then(m => m.ViewDataPage)
       },

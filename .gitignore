@@ -20,3 +20,7 @@ admin-app/
 plate_detector/
 plate detector/
 models/
+
+# Firebase Service Account Key
+serviceAccountKey.json
+

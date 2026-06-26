@@ -57,6 +57,11 @@ import { Observable } from 'rxjs';
               <div matListItemTitle>Parking Spots</div>
             </a>
 
+            <a mat-list-item routerLink="/admin/find-my-car-test" routerLinkActive="active-link">
+              <mat-icon matListItemIcon>search</mat-icon>
+              <div matListItemTitle>Find My Car Test</div>
+            </a>
+
             <a mat-list-item routerLink="/admin/view-data" routerLinkActive="active-link">
               <mat-icon matListItemIcon>people</mat-icon>
               <div matListItemTitle>View Data</div>

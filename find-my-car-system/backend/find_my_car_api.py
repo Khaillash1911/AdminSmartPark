@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 # pyrefly: ignore [missing-import]
+from firebase_config import db
 from ultralytics import YOLO
 # pyrefly: ignore [missing-import]
 import cv2
@@ -153,6 +154,83 @@ def detect_plate():
         "detections": detections,
         "uploaded_image": image_path,
         "result_image": f"http://127.0.0.1:5002/static/results/{output_filename}"
+    })
+
+@app.route("/find-car/<plate_number>", methods=["GET"])
+@app.route("/find_car/<plate_number>", methods=["GET"])
+def find_car(plate_number):
+    cleaned_plate = clean_plate_text(plate_number)
+
+    print("Searching for plate:", cleaned_plate)
+
+    cars_ref = db.collection("find_my_car")
+    query = cars_ref.where("car_plate_search", "==", cleaned_plate).limit(1).stream()
+
+    car_data = None
+
+    for doc in query:
+        car_data = doc.to_dict()
+        break
+
+    if car_data is None:
+        return jsonify({
+            "success": True,
+            "found": False,
+            "message": "Car not found",
+            "searched_plate": cleaned_plate
+        }), 404
+
+    return jsonify({
+        "success": True,
+        "found": True,
+        "message": "Car found",
+        "car": {
+            "uid": car_data.get("uid"),
+            "name": car_data.get("name"),
+            "email": car_data.get("email"),
+            "student_id": car_data.get("student_id"),
+
+            "car_model": car_data.get("car_model"),
+            "car_colour": car_data.get("car_colour"),
+            "car_plate": car_data.get("car_plate"),
+            "car_plate_search": car_data.get("car_plate_search"),
+            "is_oku": car_data.get("is_oku"),
+
+            "parking_level": car_data.get("parking_level"),
+            "parking_zone": car_data.get("parking_zone"),
+            "parking_row": car_data.get("parking_row"),
+            "parking_slot": car_data.get("parking_slot"),
+
+            "image_url": car_data.get("image_url"),
+            "status": car_data.get("status"),
+            "entry_time": car_data.get("entry_time"),
+            "exit_time": car_data.get("exit_time")
+        }
+    })
+
+
+
+@app.route("/sample-plates", methods=["GET"])
+def sample_plates():
+    cars_ref = db.collection("find_my_car").stream()
+
+    plates = []
+
+    for doc in cars_ref:
+        car = doc.to_dict()
+
+        if car.get("status") == "parked":
+            plates.append({
+                "car_plate": car.get("car_plate"),
+                "car_plate_search": car.get("car_plate_search"),
+                "car_model": car.get("car_model"),
+                "car_colour": car.get("car_colour")
+            })
+
+    return jsonify({
+        "success": True,
+        "count": len(plates),
+        "plates": plates
     })
 
 
