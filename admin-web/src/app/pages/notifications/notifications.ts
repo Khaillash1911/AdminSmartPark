@@ -78,7 +78,7 @@ import { FormsModule } from '@angular/forms';
     .page-title { margin: 0 0 4px 0; font-size: 28px; color: var(--primary-dark-blue); }
     .page-subtitle { margin: 0; color: var(--text-secondary); }
     
-    .filters { margin-bottom: 24px; display: flex; gap: 16px; }
+    .filters { margin-bottom: 24px; display: flex; gap: 16px; flex-wrap: wrap; }
 
     .notifications-list { display: flex; flex-direction: column; gap: 16px; }
     
@@ -91,9 +91,9 @@ import { FormsModule } from '@angular/forms';
       border-left-color: var(--success-green);
       opacity: 0.8; background-color: #fafafa;
     }
-    .notification-card .mat-mdc-card-content { padding: 0; display: flex; width: 100%; justify-content: space-between;}
+    .notification-card .mat-mdc-card-content { padding: 0; display: flex; width: 100%; justify-content: space-between; gap: 16px; min-width: 0; }
     
-    .card-left { display: flex; align-items: flex-start; gap: 16px; flex: 1; }
+    .card-left { display: flex; align-items: flex-start; gap: 16px; flex: 1; min-width: 0; }
     .icon-box {
       width: 48px; height: 48px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center; color: white;
@@ -101,8 +101,9 @@ import { FormsModule } from '@angular/forms';
     .icon-box.double_park { background-color: var(--warning-yellow); }
     .icon-box.oku_violation { background-color: var(--danger-red); }
     
-    .details h3 { margin: 0 0 8px 0; font-size: 16px; font-weight: 500; }
-    .details p { margin: 0 0 4px 0; color: var(--text-secondary); font-size: 14px; display: flex; align-items: center; gap: 4px; }
+    .details { min-width: 0; }
+    .details h3 { margin: 0 0 8px 0; font-size: 16px; font-weight: 500; overflow-wrap: anywhere; }
+    .details p { margin: 0 0 4px 0; color: var(--text-secondary); font-size: 14px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
     .small-icon { font-size: 16px; width: 16px; height: 16px; }
     .timestamp { font-size: 12px; color: #999; }
     
@@ -114,6 +115,29 @@ import { FormsModule } from '@angular/forms';
     }
     .empty-icon { font-size: 64px; width: 64px; height: 64px; color: var(--success-green); opacity: 0.5; margin-bottom: 16px; }
     .empty-state h2 { margin: 0 0 8px 0; color: var(--text-primary); }
+
+    @media (max-width: 700px) {
+      .page-title { font-size: 22px; }
+      .notification-card { padding: 14px; }
+      .notification-card .mat-mdc-card-content,
+      .card-left {
+        flex-direction: column;
+      }
+
+      .card-right {
+        align-items: stretch;
+        width: 100%;
+      }
+
+      .card-right button {
+        width: 100%;
+      }
+
+      .icon-box {
+        width: 40px;
+        height: 40px;
+      }
+    }
   `]
 })
 export class NotificationsPage implements OnInit, OnDestroy {

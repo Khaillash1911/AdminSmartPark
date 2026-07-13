@@ -226,12 +226,12 @@ interface ImageEntry {
 
     .upload-btn {
       display: flex; align-items: center; justify-content: center; gap: 6px;
-      background: linear-gradient(135deg, #1a237e, #1976d2);
+      background: #1976d2;
       color: white; border-radius: 8px; padding: 10px;
       cursor: pointer; font-size: 13px; font-weight: 500;
-      margin-top: 10px; transition: opacity 0.2s;
+      margin-top: 10px; transition: opacity 0.2s, background-color 0.15s ease;
     }
-    .upload-btn:hover { opacity: 0.9; }
+    .upload-btn:hover { background: #1565c0; opacity: 1; }
     .upload-btn mat-icon { font-size: 18px; width: 18px; height: 18px; }
 
     /* Legend */
@@ -255,10 +255,10 @@ interface ImageEntry {
     .canvas-placeholder p { font-size: 14px; }
     .upload-btn-lg {
       display: flex; align-items: center; gap: 8px;
-      background: rgba(255,255,255,0.1); color: white; border-radius: 8px;
+      background: #1976d2; color: white; border-radius: 8px;
       padding: 12px 20px; cursor: pointer; font-size: 14px; border: 1px dashed rgba(255,255,255,0.3);
     }
-    .upload-btn-lg:hover { background: rgba(255,255,255,0.18); }
+    .upload-btn-lg:hover { background: #1565c0; }
 
     .canvas-toolbar {
       display: flex; align-items: center; gap: 8px;
@@ -302,7 +302,94 @@ interface ImageEntry {
     .save-path-hint code { background: rgba(0,0,0,0.07); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
     .hint-icon { font-size: 14px; width: 14px; height: 14px; color: #f57c00; }
     .footer-actions { display: flex; gap: 10px; align-items: center; }
-    .btn-save { background: linear-gradient(135deg, #1a237e, #1976d2) !important; color: white !important; }
+    .btn-save { background: #1976d2 !important; color: white !important; }
+
+    @media (max-width: 900px) {
+      .dialog-header {
+        padding: 14px;
+      }
+
+      .header-left {
+        min-width: 0;
+      }
+
+      .dialog-title {
+        font-size: 18px;
+      }
+
+      .dialog-subtitle {
+        overflow-wrap: anywhere;
+      }
+
+      .dialog-body {
+        flex-direction: column;
+        overflow-y: auto;
+      }
+
+      .side-panel {
+        width: auto;
+        min-width: 0;
+        max-height: 210px;
+        border-right: 0;
+        border-bottom: 1px solid rgba(0,0,0,0.08);
+      }
+
+      .image-list {
+        min-height: 0;
+      }
+
+      .legend {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+
+      .canvas-area {
+        min-height: 420px;
+      }
+
+      .canvas-toolbar {
+        align-items: flex-start;
+      }
+
+      .spacer {
+        flex-basis: 100%;
+        height: 0;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .dialog-header {
+        align-items: flex-start;
+      }
+
+      .canvas-area {
+        min-height: 340px;
+      }
+
+      .canvas-wrapper {
+        padding: 8px;
+      }
+
+      .dialog-footer {
+        align-items: stretch;
+        padding: 12px 14px;
+      }
+
+      .footer-left,
+      .footer-actions,
+      .footer-actions button {
+        width: 100%;
+      }
+
+      .footer-actions {
+        flex-direction: column-reverse;
+      }
+
+      .save-path-hint {
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+    }
   `]
 })
 export class ParkingMarkerDialogComponent implements AfterViewInit, OnDestroy {

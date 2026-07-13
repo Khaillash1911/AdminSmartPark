@@ -161,6 +161,8 @@ interface ParkingRow {
               class="parking-row"
               [class.horizontal]="row.orientation === 'horizontal'"
               [class.vertical]="row.orientation === 'vertical'"
+              [class.medium-or-high-occupancy]="getOccupancyPercentage(row) >= 55"
+              [class.high-occupancy]="getOccupancyPercentage(row) >= 80"
               [class.selected]="selectedRow?.id === row.id"
               [attr.data-section]="row.section"
               [ngStyle]="getRowStyle(row)"
@@ -170,7 +172,6 @@ interface ParkingRow {
               <span class="row-fill" [ngStyle]="getFillStyle(row)"></span>
               <span class="row-shine"></span>
               <span class="row-label">{{ row.id }}</span>
-              <span class="row-count">{{ row.occupied }}/{{ row.total }}</span>
             </button>
           </div>
         </div>
@@ -211,17 +212,17 @@ interface ParkingRow {
   styles: [`
     :host {
       display: block;
-      height: 100%;
-      overflow: hidden;
+      min-height: 100%;
+      overflow: visible;
     }
 
     .parking-page {
-      height: calc(100vh - 88px);
-      min-height: 610px;
+      height: calc(100dvh - 112px);
+      min-height: 640px;
       display: grid;
       grid-template-rows: auto auto 1fr;
       gap: 10px;
-      overflow: hidden;
+      overflow: visible;
       padding: 0 2px 2px;
       box-sizing: border-box;
     }
@@ -231,6 +232,7 @@ interface ParkingRow {
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      flex-wrap: wrap;
     }
 
     .page-title {
@@ -266,11 +268,13 @@ interface ParkingRow {
       height: 18px;
     }
 
-    .btn-add { background: linear-gradient(135deg, #1a6c2e, #2e9e4f); color: white; }
+    .btn-add { background: #1f7a3f !important; color: white !important; }
     .btn-add mat-icon { color: white; }
-    .btn-edit { border-color: #1f6feb; color: #1f6feb; }
-    .btn-delete { border-color: #c62828; color: #c62828; }
-    .btn-test { background: linear-gradient(135deg, #4a148c, #7b1fa2) !important; color: white !important; }
+    .btn-edit { background: #1f6feb !important; border-color: #1f6feb !important; color: white !important; }
+    .btn-edit mat-icon { color: white; }
+    .btn-delete { background: #c62828 !important; border-color: #c62828 !important; color: white !important; }
+    .btn-delete mat-icon { color: white; }
+    .btn-test { background: #6a1b9a !important; color: white !important; }
     .btn-test mat-icon { color: white; }
 
     .summary-strip {
@@ -282,7 +286,7 @@ interface ParkingRow {
     .mini-card {
       border-radius: 12px;
       color: white;
-      box-shadow: 0 8px 22px rgba(16, 24, 40, 0.10);
+      box-shadow: none;
       overflow: hidden;
     }
 
@@ -309,11 +313,11 @@ interface ParkingRow {
     }
 
     .total-card { background: linear-gradient(135deg, #344054, #667085); }
-    .occupied-card { background: linear-gradient(135deg, #b42318, #f04438); }
+    .occupied-card { background: linear-gradient(135deg, #b71c1c, #d32f2f); }
     .available-card { background: linear-gradient(135deg, #027a48, #12b76a); }
     .percent-card { background: linear-gradient(135deg, #175cd3, #53b1fd); }
-    .section-a-card { background: linear-gradient(135deg, #c21b12, #ff6b5f); }
-    .section-b-card { background: linear-gradient(135deg, #2d6a2f, #67b26f); }
+    .section-a-card { background: linear-gradient(135deg, #5d4037, #8d6e63); }
+    .section-b-card { background: linear-gradient(135deg, #00796b, #4db6ac); }
     .section-c-card { background: linear-gradient(135deg, #6a1b9a, #b264d9); }
 
     .layout-stage {
@@ -321,7 +325,7 @@ interface ParkingRow {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 250px;
       gap: 10px;
-      overflow: hidden;
+      overflow: visible;
     }
 
     .map-panel, .detail-panel {
@@ -334,13 +338,15 @@ interface ParkingRow {
     }
 
     .map-panel {
-      display: grid;
-      grid-template-rows: auto 1fr;
+      display: flex;
+      flex-direction: column;
       padding: 10px;
       box-sizing: border-box;
+      min-width: 0;
     }
 
     .map-toolbar {
+      flex-shrink: 0;
       height: 28px;
       display: flex;
       justify-content: space-between;
@@ -368,20 +374,18 @@ interface ParkingRow {
       vertical-align: -1px;
     }
 
-    .dot.a { background: #ea4335; }
-    .dot.b { background: #2e7d32; }
+    .dot.a { background: #795548; }
+    .dot.b { background: #009688; }
     .dot.c { background: #8e24aa; }
     .level.low { background: #12b76a; }
-    .level.medium { background: #f79009; }
-    .level.high { background: #f04438; }
+    .level.medium { background: #ffc107; }
+    .level.high { background: #d32f2f; }
 
     .parking-map {
+      flex: 1;
       position: relative;
       width: 100%;
       height: 100%;
-      max-height: 100%;
-      aspect-ratio: 16 / 9;
-      margin: auto;
       overflow: hidden;
       border-radius: 16px;
       background:
@@ -421,12 +425,12 @@ interface ParkingRow {
     }
 
     .section-b {
-      left: 4.5%;
+      left: 3.5%;
       top: 45%;
-      width: 68.5%;
+      width: 69.5%;
       height: 50.5%;
-      border-color: rgba(46, 125, 50, .95);
-      background: rgba(46, 125, 50, .055);
+      border-color: rgba(0, 150, 136, .95);
+      background: rgba(0, 150, 136, .055);
     }
 
     .section-a {
@@ -434,8 +438,8 @@ interface ParkingRow {
       top: 38.5%;
       width: 20.8%;
       height: 56.8%;
-      border-color: rgba(234, 67, 53, .92);
-      background: rgba(234, 67, 53, .05);
+      border-color: rgba(121, 85, 72, .92);
+      background: rgba(121, 85, 72, .05);
     }
 
     .section-name {
@@ -449,6 +453,12 @@ interface ParkingRow {
       font-size: 10px;
       font-weight: 900;
       letter-spacing: .45px;
+      z-index: 12;
+    }
+
+    .section-b .section-name {
+      top: auto;
+      bottom: 6px;
     }
 
     .road {
@@ -480,15 +490,16 @@ interface ParkingRow {
     .entry-exit-arrows {
       position: absolute;
       z-index: 10;
-      left: 72%;
-      top: 30%;
+      left: 73.2%;
+      top: 31.5%;
       display: flex;
-      gap: 16px;
-      padding: 6px 12px;
-      background: rgba(255, 255, 255, 0.95);
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(16,24,40,0.15);
-      border: 1px solid rgba(16,24,40,0.08);
+      gap: 7px;
+      padding: 4px 7px;
+      background: rgba(255, 255, 255, 0.86);
+      border-radius: 6px;
+      box-shadow: 0 3px 8px rgba(16,24,40,0.12);
+      border: 1px solid rgba(16,24,40,0.07);
+      backdrop-filter: blur(4px);
       pointer-events: none;
     }
 
@@ -496,22 +507,25 @@ interface ParkingRow {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 2px;
+      gap: 0;
+      min-width: 20px;
     }
 
     .arrow-group span {
-      font-size: 10px;
+      font-size: 8px;
       font-weight: 900;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.35px;
+      line-height: 1;
     }
 
     .arrow-group.in { color: #12b76a; }
     .arrow-group.out { color: #f04438; }
 
     .arrow-group mat-icon {
-      font-size: 20px;
-      width: 20px;
-      height: 20px;
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+      line-height: 14px;
     }
 
 
@@ -524,19 +538,15 @@ interface ParkingRow {
       cursor: pointer;
       overflow: hidden;
       border-radius: 4px;
-      background: linear-gradient(145deg, #f8fafc, #d0d5dd);
-      box-shadow:
-        0 1px 0 rgba(255,255,255,.9) inset,
-        0 -4px 0 rgba(0,0,0,.08) inset,
-        0 8px 16px rgba(16,24,40,.18);
-      transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+      background: #ffffff;
+      box-shadow: none;
+      transition: transform .16s ease, filter .16s ease;
     }
 
     .parking-row::before {
       content: '';
       position: absolute;
       inset: 0;
-      border: 2px solid rgba(255,255,255,.85);
       border-radius: inherit;
       pointer-events: none;
       z-index: 3;
@@ -547,8 +557,8 @@ interface ParkingRow {
       position: absolute;
       inset: 4px;
       border-radius: 2px;
-      background-image: repeating-linear-gradient(90deg, rgba(52,64,84,.24) 0 1px, transparent 1px 12px);
-      opacity: .34;
+      background-image: none;
+      opacity: 0;
       z-index: 2;
       pointer-events: none;
     }
@@ -560,7 +570,7 @@ interface ParkingRow {
     .parking-row:hover {
       filter: brightness(1.04);
       transform: translateY(-2px) scale(1.015);
-      box-shadow: 0 12px 22px rgba(16,24,40,.24);
+      box-shadow: none;
     }
 
     .parking-row.selected {
@@ -569,17 +579,17 @@ interface ParkingRow {
       z-index: 8;
     }
 
-    .parking-row[data-section='A'] { border-left: 5px solid #ea4335; }
-    .parking-row[data-section='B'] { border-left: 5px solid #2e7d32; }
-    .parking-row[data-section='C'] { border-left: 5px solid #8e24aa; }
+    .parking-row[data-section='A'] { border-left: 5px solid #795548; }
+    .parking-row[data-section='B'] { border-left: 5px solid #009688; }
+    .parking-row[data-section='C'] { border-top: 5px solid #8e24aa; }
 
     .row-fill {
       position: absolute;
       left: 0;
       bottom: 0;
       z-index: 1;
-      background: linear-gradient(135deg, var(--row-color), color-mix(in srgb, var(--row-color) 72%, #ffffff));
-      opacity: .88;
+      background: linear-gradient(135deg, var(--row-color), color-mix(in srgb, var(--row-color) 85%, #ffffff));
+      opacity: 1;
       pointer-events: none;
     }
 
@@ -596,45 +606,31 @@ interface ParkingRow {
       position: absolute;
       inset: 0;
       z-index: 2;
-      background: linear-gradient(120deg, rgba(255,255,255,.45), transparent 42%, rgba(0,0,0,.06));
-      pointer-events: none;
-    }
-
-    .row-label, .row-count {
-      position: absolute;
-      z-index: 4;
-      left: 50%;
-      transform: translateX(-50%);
-      color: #101828;
-      text-shadow: 0 1px 0 rgba(255,255,255,.65);
-      white-space: nowrap;
+      background: none;
       pointer-events: none;
     }
 
     .row-label {
-      top: 14%;
+      position: absolute;
+      z-index: 4;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: #101828;
+      text-shadow: 0 1px 0 rgba(255,255,255,.72);
+      white-space: nowrap;
+      pointer-events: none;
       font-size: clamp(11px, 1.05vw, 16px);
       font-weight: 950;
     }
 
-    .row-count {
-      bottom: 10%;
-      font-size: clamp(8px, .72vw, 11px);
-      font-weight: 850;
-      background: rgba(255,255,255,.72);
-      border-radius: 999px;
-      padding: 1px 5px;
-    }
-
     .vertical .row-label {
-      top: 50%;
       transform: translate(-50%, -50%) rotate(90deg);
     }
 
-    .vertical .row-count {
-      left: 50%;
-      bottom: 4%;
-      transform: translateX(-50%);
+    .medium-or-high-occupancy .row-label {
+      color: #ffffff;
+      text-shadow: 0 1px 2px rgba(0,0,0,.45);
     }
 
     .detail-panel {
@@ -659,8 +655,8 @@ interface ParkingRow {
       box-shadow: inset 0 -3px 0 rgba(0,0,0,.13);
     }
 
-    .detail-header[data-section='A'] { background: linear-gradient(135deg, #c21b12, #ff6b5f); }
-    .detail-header[data-section='B'] { background: linear-gradient(135deg, #2d6a2f, #67b26f); }
+    .detail-header[data-section='A'] { background: linear-gradient(135deg, #5d4037, #8d6e63); }
+    .detail-header[data-section='B'] { background: linear-gradient(135deg, #00796b, #4db6ac); }
     .detail-header[data-section='C'] { background: linear-gradient(135deg, #6a1b9a, #b264d9); }
 
     .detail-header span {
@@ -763,8 +759,8 @@ interface ParkingRow {
 
     @media (max-width: 1100px) {
       .parking-page {
-        height: calc(100vh - 72px);
-        min-height: 560px;
+        height: calc(100dvh - 112px);
+        min-height: 620px;
       }
 
       .layout-stage {
@@ -786,8 +782,9 @@ interface ParkingRow {
 
     @media (max-width: 820px) {
       .parking-page {
-        height: calc(100vh - 64px);
-        min-height: 520px;
+        height: auto;
+        min-height: 0;
+        grid-template-rows: auto auto auto;
       }
 
       .page-subtitle,
@@ -799,14 +796,40 @@ interface ParkingRow {
 
       .layout-stage {
         grid-template-columns: 1fr;
+        overflow-x: auto;
       }
 
       .detail-panel {
         display: none;
       }
 
+      .map-panel {
+        min-width: 680px;
+      }
+
       .summary-strip {
         grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 560px) {
+      .action-buttons {
+        justify-content: flex-start;
+        width: 100%;
+      }
+
+      .action-buttons button {
+        flex: 1 1 calc(50% - 8px);
+        min-width: 0;
+      }
+
+      .summary-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .mini-card mat-card-content {
+        align-items: flex-start;
+        flex-direction: column;
       }
     }
   `]
@@ -888,12 +911,37 @@ export class ParkingSpotsPage implements OnInit {
   async loadSpots() {
     this.isLoading = true;
     try {
-      const live = await this.analyticsService.getLiveOverview();
-      const occupied = Math.min(live?.carsParked ?? 0, this.totalBaseSpots);
-      this.rows = this.distributeOccupiedAcrossRows(occupied);
+      this.rows = JSON.parse(JSON.stringify(this.baseRows));
+
+      ['A', 'B', 'C', 'M', 'N'].forEach(id => {
+        const r = this.rows.find(x => x.id === id);
+        if (r) r.occupied = 0;
+      });
+
+      ['D', 'E', 'R', 'X', 'Q', 'J'].forEach(id => {
+        const r = this.rows.find(x => x.id === id);
+        if (r) r.occupied = r.total;
+      });
+
+      const nearlyFull: Record<string, number> = { 'F': 2, 'G': 1, 'H': 3, 'I': 2, 'S': 1, 'T': 5 };
+      Object.entries(nearlyFull).forEach(([id, gap]) => {
+        const r = this.rows.find(x => x.id === id);
+        if (r) r.occupied = r.total - gap;
+      });
+
+      const medium: Record<string, number> = { 'K': 0.65, 'L': 0.70, 'U': 0.60, 'W': 0.75, 'V': 0.62 };
+      Object.entries(medium).forEach(([id, multiplier]) => {
+        const r = this.rows.find(x => x.id === id);
+        if (r) r.occupied = Math.floor(r.total * multiplier);
+      });
+
+      this.rows.forEach(r => {
+         if (r.occupied === 0 && !['A', 'B', 'C', 'M', 'N'].includes(r.id)) {
+           r.occupied = Math.floor(r.total * 0.45); 
+         }
+      });
     } catch (e) {
       console.error('Failed to load parking layout', e);
-      this.rows = this.distributeOccupiedAcrossRows(645);
     } finally {
       this.selectedRow = this.rows.find(r => r.id === this.selectedRow?.id) ?? this.rows[0] ?? null;
       this.isLoading = false;
@@ -974,8 +1022,8 @@ export class ParkingSpotsPage implements OnInit {
 
   getRowColor(row: ParkingRow): string {
     const pct = this.getOccupancyPercentage(row);
-    if (pct >= 80) return '#f04438';
-    if (pct >= 55) return '#f79009';
+    if (pct >= 80) return '#d32f2f';
+    if (pct >= 55) return '#ffc107';
     return '#12b76a';
   }
 

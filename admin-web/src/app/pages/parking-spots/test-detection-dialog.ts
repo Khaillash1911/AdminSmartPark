@@ -294,7 +294,65 @@ interface DetectionResult {
     }
     .run-hint { font-size: 12px; color: #c62828; font-family: monospace; }
     .run-hint code { background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 3px; }
-    .run-btn { background: linear-gradient(135deg, #4a148c, #7b1fa2) !important; color: white !important; }
+    .run-btn { background: #6a1b9a !important; color: white !important; }
+
+    @media (max-width: 800px) {
+      .dialog-header,
+      .status-bar,
+      .dialog-footer {
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+
+      .header-left {
+        min-width: 0;
+      }
+
+      .dialog-title {
+        font-size: 18px;
+      }
+
+      .dialog-subtitle,
+      .status-text {
+        overflow-wrap: anywhere;
+      }
+
+      .dialog-body {
+        flex-direction: column;
+        overflow-y: auto;
+      }
+
+      .terminal {
+        width: 100%;
+        min-height: 260px;
+        border-right: 0;
+        border-bottom: 1px solid #222;
+      }
+
+      .result-panel {
+        overflow: visible;
+      }
+
+      .grand-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 520px) {
+      .grand-cards {
+        grid-template-columns: 1fr;
+      }
+
+      .img-card-header,
+      .spot-row {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .dialog-footer button {
+        flex: 1 1 100%;
+      }
+    }
   `]
 })
 export class TestDetectionDialogComponent implements OnDestroy {

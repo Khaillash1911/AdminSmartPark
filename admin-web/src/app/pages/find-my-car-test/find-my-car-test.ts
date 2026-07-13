@@ -146,6 +146,7 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
       max-width: 800px;
       margin: 0 auto;
       padding: 16px;
+      box-sizing: border-box;
     }
     .page-title {
       font-size: 28px;
@@ -159,6 +160,7 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
     .search-card {
       margin-bottom: 24px;
       padding: 16px;
+      border-radius: 12px;
     }
     .search-content {
       display: flex;
@@ -258,6 +260,7 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
       font-size: 15px;
       font-weight: 500;
       color: var(--text-primary);
+      overflow-wrap: anywhere;
     }
     .location-highlight {
       color: var(--accent-blue);
@@ -277,6 +280,44 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
     .status-badge.parked {
       background: #e8f5e9;
       color: #2e7d32;
+    }
+
+    @media (max-width: 600px) {
+      .page-container {
+        padding: 0;
+      }
+
+      .page-title {
+        font-size: 22px;
+      }
+
+      .search-card {
+        padding: 12px;
+      }
+
+      .search-content {
+        gap: 8px;
+      }
+
+      .search-field {
+        flex-basis: 100%;
+        min-width: 0;
+      }
+
+      .search-btn {
+        width: 100%;
+        height: 48px;
+        margin-bottom: 0;
+      }
+
+      .info-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      img.mat-mdc-card-image {
+        max-height: 260px;
+      }
     }
   `]
 })

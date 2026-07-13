@@ -126,12 +126,12 @@ import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
 
     .settings-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
       gap: 24px;
       align-items: flex-start;
     }
 
-    .settings-card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .settings-card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); min-width: 0; }
     .header-icon {
       background-color: rgba(26, 35, 126, 0.1);
       color: var(--primary-dark-blue);
@@ -173,6 +173,36 @@ import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
       font-size: 14px;
       display: flex; align-items: center; gap: 8px;
       margin-top: 16px; margin-bottom: 0;
+    }
+
+    @media (max-width: 600px) {
+      .page-header { margin-bottom: 18px; }
+      .page-title { font-size: 22px; }
+      .settings-grid { gap: 16px; }
+
+      .info-note,
+      .warning-text {
+        align-items: flex-start;
+      }
+
+      .actions {
+        justify-content: stretch;
+      }
+
+      .actions button,
+      .mt-16 {
+        width: 100%;
+      }
+
+      .staff-readonly {
+        padding: 16px;
+      }
+
+      .readonly-item {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+      }
     }
   `]
 })

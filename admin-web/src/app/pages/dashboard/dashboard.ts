@@ -1,7 +1,5 @@
-import { Component, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { AnalyticsService, ParkingLog } from '../../core/services/analytics.service';
-import { RevenueService } from '../../core/services/revenue.service';
 import { BaseChartDirective } from 'ng2-charts';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -10,7 +8,7 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatDividerModule } from '@angular/material/divider';
 import { FormsModule } from '@angular/forms';
-import { ChartConfiguration, ChartType } from 'chart.js';
+import { ChartConfiguration } from 'chart.js';
 
 @Component({
   selector: 'app-dashboard',
@@ -165,6 +163,7 @@ import { ChartConfiguration, ChartType } from 'chart.js';
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 16px;
       margin-bottom: 24px;
     }
     .page-title {
@@ -260,12 +259,16 @@ import { ChartConfiguration, ChartType } from 'chart.js';
 
     .charts-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
       gap: 24px;
     }
     .chart-card {
       border-radius: 12px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      min-width: 0;
+    }
+    .chart-card mat-card-content {
+      height: 300px;
     }
     mat-card-header {
       margin-bottom: 16px;
@@ -273,6 +276,54 @@ import { ChartConfiguration, ChartType } from 'chart.js';
     mat-card-title {
       font-size: 16px;
       font-weight: 500;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-header,
+      .controls-bar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .overview-grid {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+        gap: 14px;
+        margin-bottom: 24px;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .page-title {
+        font-size: 22px;
+      }
+
+      .metric-card {
+        padding: 14px;
+      }
+
+      .metric-icon {
+        width: 40px;
+        height: 40px;
+        margin-right: 12px;
+      }
+
+      .metric-icon mat-icon {
+        font-size: 30px;
+        width: 30px;
+        height: 30px;
+      }
+
+      .metric-value {
+        font-size: 20px;
+      }
+
+      .charts-grid {
+        gap: 16px;
+      }
+
+      .chart-card mat-card-content {
+        height: 240px;
+      }
     }
   `]
 })
@@ -292,63 +343,98 @@ export class DashboardPage implements OnInit {
   okuViolationsChartData: ChartConfiguration['data'] = { datasets: [], labels: [] };
   revenueChartData: ChartConfiguration['data'] = { datasets: [], labels: [] };
 
-  constructor(
-    private analyticsService: AnalyticsService,
-    private revenueService: RevenueService
-  ) {}
-
   ngOnInit() {
     this.fetchLiveOverview();
     this.loadData();
-    setInterval(() => this.fetchLiveOverview(), 15000); // 15s refresh
   }
 
   async fetchLiveOverview() {
-    const live = await this.analyticsService.getLiveOverview();
-    this.liveData.set(live);
-    // Revenue is calculated from getRevenueStats in loadData instead
+    this.liveData.set({
+      carsParked: 645,
+      spotsAvailable: 475,
+      okusAvailable: 31,
+      activeViolations: 6,
+      totalSpots: 1120
+    });
+    this.todayRevenue.set(382.50);
   }
 
   async loadData() {
-    const logs = await this.analyticsService.getParkingLogs(this.selectedPeriod);
+    const mock = this.getMockDashboardData(this.selectedPeriod);
     
     // 1. Peak Hours
-    const peak = this.analyticsService.getPeakHoursData(logs);
     this.peakHoursChartData = {
-      labels: peak.labels,
+      labels: mock.peakLabels,
       datasets: [
-        { data: peak.entries, label: 'Entries', borderColor: '#1976d2', backgroundColor: 'rgba(25,118,210,0.1)', fill: true, tension: 0.4 },
-        { data: peak.exits, label: 'Exits', borderColor: '#d32f2f', backgroundColor: 'transparent', tension: 0.4 }
+        { data: mock.entries, label: 'Entries', borderColor: '#1976d2', backgroundColor: 'rgba(25,118,210,0.1)', fill: true, tension: 0.4 },
+        { data: mock.exits, label: 'Exits', borderColor: '#d32f2f', backgroundColor: 'transparent', tension: 0.4 }
       ]
     };
 
     // 2. Traffic
-    const traffic = this.analyticsService.getCarCountByDay(logs);
     this.totalCarsChartData = {
-      labels: traffic.labels,
+      labels: mock.periodLabels,
       datasets: [
-        { data: traffic.entries, label: 'Total Entered', backgroundColor: '#1976d2' },
-        { data: traffic.exits, label: 'Total Exited', backgroundColor: '#4caf50' }
+        { data: mock.trafficEntries, label: 'Total Entered', backgroundColor: '#1976d2' },
+        { data: mock.trafficExits, label: 'Total Exited', backgroundColor: '#4caf50' }
       ]
     };
 
     // 3. OKU Violations
-    const oku = this.analyticsService.getOkuViolationsByDay(logs);
     this.okuViolationsChartData = {
-      labels: oku.labels,
+      labels: mock.periodLabels,
       datasets: [
-        { data: oku.counts, label: 'OKU Violations', backgroundColor: '#d32f2f' }
+        { data: mock.okuViolations, label: 'OKU Violations', backgroundColor: '#d32f2f' }
       ]
     };
 
-    // 4. Revenue (Mock for Graph)
-    const revLabels = traffic.labels;
-    const dummyRevData = traffic.entries.map(e => e * 1.5); // Mock graph logic for UI
+    // 4. Revenue
     this.revenueChartData = {
-      labels: revLabels,
+      labels: mock.periodLabels,
       datasets: [
-        { data: dummyRevData, label: 'Revenue (RM)', backgroundColor: '#4caf50' }
+        { data: mock.revenue, label: 'Revenue (RM)', backgroundColor: '#4caf50' }
       ]
+    };
+  }
+
+  private getMockDashboardData(period: 'today' | 'week' | 'month') {
+    const peakLabels = ['7 AM', '8 AM', '9 AM', '10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM', '6 PM', '7 PM'];
+
+    if (period === 'today') {
+      return {
+        peakLabels,
+        entries: [22, 58, 91, 74, 46, 62, 80, 69, 52, 77, 96, 84, 43],
+        exits: [8, 19, 35, 41, 38, 44, 51, 57, 63, 70, 88, 102, 66],
+        periodLabels: ['7 AM', '9 AM', '11 AM', '1 PM', '3 PM', '5 PM', '7 PM'],
+        trafficEntries: [22, 91, 46, 80, 52, 96, 43],
+        trafficExits: [8, 35, 38, 51, 63, 88, 66],
+        okuViolations: [0, 1, 0, 2, 1, 3, 1],
+        revenue: [18, 72, 44, 68, 51, 89, 40]
+      };
+    }
+
+    if (period === 'week') {
+      return {
+        peakLabels,
+        entries: [84, 188, 245, 214, 176, 203, 238, 220, 196, 231, 268, 244, 151],
+        exits: [42, 121, 174, 188, 170, 192, 205, 213, 219, 230, 252, 271, 193],
+        periodLabels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        trafficEntries: [612, 684, 731, 705, 812, 476, 389],
+        trafficExits: [588, 661, 704, 692, 779, 462, 371],
+        okuViolations: [3, 4, 2, 5, 6, 2, 1],
+        revenue: [421, 488, 536, 504, 612, 318, 244]
+      };
+    }
+
+    return {
+      peakLabels,
+      entries: [310, 642, 815, 756, 621, 702, 790, 744, 680, 768, 842, 801, 522],
+      exits: [188, 436, 602, 665, 618, 652, 701, 735, 742, 788, 830, 858, 641],
+      periodLabels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+      trafficEntries: [3560, 3988, 4214, 4472],
+      trafficExits: [3412, 3861, 4097, 4329],
+      okuViolations: [14, 18, 16, 21],
+      revenue: [2485, 2874, 3096, 3348]
     };
   }
 

@@ -170,8 +170,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     .search-header { padding: 16px 24px 0 24px; }
     .search-field { width: 100%; max-width: 400px; }
     
-    .table-container { padding: 0; }
-    table { width: 100%; }
+    .table-container { padding: 0; overflow-x: auto; }
+    table { width: 100%; min-width: 920px; }
     
     .user-name { display: flex; align-items: center; font-weight: 500; }
     .flag-icon { font-size: 16px; width: 16px; height: 16px; margin-left: 8px; }
@@ -187,6 +187,19 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     
     .action-cell { text-align: right; }
     .no-data-cell { padding: 24px; text-align: center; color: var(--text-secondary); font-style: italic; }
+
+    @media (max-width: 700px) {
+      .page-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .page-title { font-size: 22px; }
+      .search-header { padding: 12px 12px 0; }
+      .search-field { max-width: none; }
+      .table-container { -webkit-overflow-scrolling: touch; }
+    }
   `]
 })
 export class ViewDataPage implements OnInit {

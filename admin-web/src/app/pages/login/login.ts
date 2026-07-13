@@ -79,8 +79,10 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      min-height: 100dvh;
+      padding: 16px;
       background: linear-gradient(135deg, var(--primary-dark-blue) 0%, var(--accent-blue) 100%);
+      box-sizing: border-box;
     }
     .login-card {
       width: 100%;
@@ -153,6 +155,20 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
       margin-bottom: 16px;
       font-size: 14px;
       text-align: center;
+    }
+
+    @media (max-width: 480px) {
+      .login-card {
+        padding: 18px;
+      }
+
+      mat-card-title {
+        font-size: 21px;
+      }
+
+      .logo {
+        padding: 12px;
+      }
     }
   `]
 })

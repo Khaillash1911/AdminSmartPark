@@ -22,8 +22,63 @@ body {
   color: var(--text-primary);
 }
 
+html, body {
+  min-width: 320px;
+}
+
 * {
   box-sizing: border-box;
+}
+
+img, canvas, video {
+  max-width: 100%;
+}
+
+.mat-mdc-card,
+.mat-mdc-card-content,
+.mat-mdc-table {
+  min-width: 0;
+}
+
+button,
+.mat-mdc-button,
+.mat-mdc-raised-button,
+.mat-mdc-unelevated-button,
+.mat-mdc-outlined-button,
+.mat-mdc-icon-button {
+  box-shadow: none !important;
+}
+
+.mat-mdc-raised-button,
+.mat-mdc-unelevated-button,
+.mat-mdc-outlined-button {
+  --mdc-protected-button-container-elevation-shadow: none;
+  --mdc-protected-button-hover-container-elevation-shadow: none;
+  --mdc-protected-button-focus-container-elevation-shadow: none;
+  --mdc-protected-button-pressed-container-elevation-shadow: none;
+  --mdc-filled-button-container-color: var(--accent-blue);
+  --mdc-filled-button-label-text-color: #ffffff;
+  --mdc-protected-button-container-color: var(--accent-blue);
+  --mdc-protected-button-label-text-color: #ffffff;
+  --mdc-outlined-button-outline-color: var(--accent-blue);
+  --mdc-outlined-button-label-text-color: var(--accent-blue);
+}
+
+.mat-mdc-raised-button.mat-primary,
+.mat-mdc-unelevated-button.mat-primary {
+  --mdc-protected-button-container-color: var(--accent-blue);
+  --mdc-protected-button-label-text-color: #ffffff;
+  --mdc-filled-button-container-color: var(--accent-blue);
+  --mdc-filled-button-label-text-color: #ffffff;
+}
+
+.mat-mdc-button-base {
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease !important;
+}
+
+.mat-mdc-button-base:hover:not(:disabled) {
+  box-shadow: none !important;
+  opacity: 0.92;
 }
 
 /* Parking Marker Dialog */
@@ -38,6 +93,18 @@ body {
   flex-direction: column;
   overflow: hidden;
   border-radius: 12px !important;
+}
+
+@media (max-width: 700px) {
+  .parking-marker-dialog {
+    width: 96vw !important;
+    max-width: 96vw !important;
+    height: 92dvh !important;
+  }
+
+  .mat-mdc-dialog-container {
+    max-width: 96vw !important;
+  }
 }
 
 /* Snackbar success */

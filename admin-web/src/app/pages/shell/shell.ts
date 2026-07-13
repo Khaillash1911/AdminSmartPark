@@ -101,6 +101,7 @@ import { Observable } from 'rxjs';
       bottom: 0;
       left: 0;
       right: 0;
+      overflow: hidden;
     }
     .is-mobile .app-toolbar {
       position: fixed;
@@ -108,9 +109,11 @@ import { Observable } from 'rxjs';
     }
     .sidenav-container {
       flex: 1;
+      min-height: 0;
     }
     .is-mobile .sidenav-container {
       flex: 1 0 auto;
+      padding-top: 56px;
     }
     .sidenav {
       width: 250px;
@@ -121,6 +124,7 @@ import { Observable } from 'rxjs';
       padding: 24px;
       background-color: var(--bg-color);
       min-height: calc(100vh - 64px);
+      overflow-x: hidden;
     }
     .spacer {
       flex: 1 1 auto;
@@ -172,6 +176,33 @@ import { Observable } from 'rxjs';
     }
     mat-nav-list {
       padding-top: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .main-content {
+        padding: 18px;
+        min-height: calc(100dvh - 56px);
+      }
+
+      .admin-greeting {
+        display: none;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .main-content {
+        padding: 12px;
+      }
+
+      .toolbar-title {
+        font-size: 15px;
+        letter-spacing: 0;
+      }
+
+      .admin-role-badge {
+        font-size: 10px;
+        padding: 3px 6px;
+      }
     }
   `]
 })
