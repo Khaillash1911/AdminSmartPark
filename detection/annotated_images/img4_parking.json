@@ -1,0 +1,7 @@
+{
+    "free": 0,
+    "occupied": 1,
+    "spots": {
+        "0": true
+    }
+}

@@ -66,7 +66,7 @@ interface DetectionResult {
     <div class="status-bar">
       <span class="status-dot" [class.dot-ok]="apiOk === true" [class.dot-err]="apiOk === false" [class.dot-unknown]="apiOk === null"></span>
       <span class="status-text">
-        {{ apiOk === null ? 'Checking API…' : apiOk ? 'API ready on localhost:5050' : 'API not reachable — run: python detector_api.py' }}
+        {{ apiOk === null ? 'Checking API…' : apiOk ? 'API ready on localhost:5050' : 'API not reachable — run: python detection/parking_detector_api.py' }}
       </span>
       <span class="spacer"></span>
       <button mat-icon-button (click)="checkApi()" matTooltip="Recheck API" [disabled]="isRunning">
@@ -158,7 +158,7 @@ interface DetectionResult {
 
     <!-- Footer -->
     <div class="dialog-footer">
-      <span class="run-hint" *ngIf="!apiOk">Start the API: <code>cd AdminSmartPark && python detector_api.py</code></span>
+      <span class="run-hint" *ngIf="!apiOk">Start the API: <code>cd AdminSmartPark && python detection/parking_detector_api.py</code></span>
       <span class="spacer"></span>
       <button mat-stroked-button (click)="close()" [disabled]="isRunning">Close</button>
       <button mat-raised-button class="run-btn" (click)="runDetection()"

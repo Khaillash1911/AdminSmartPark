@@ -4,13 +4,20 @@ import matplotlib.pyplot as plt
 import json
 import cv2
 
-imgPath = '../plate_detector/sample_images/img6.jpg'
-model = YOLO('yolov8n.pt')  # 'n' = nano (fast) ideal for realtime stuff that we are aiming for
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent
+
+imgPath = str(ROOT_DIR / 'detection' / 'sample_images' / 'img6.jpg')
+root_yolo_path = ROOT_DIR / "yolov8n.pt"
+model = YOLO(str(root_yolo_path))  # 'n' = nano (fast) ideal for realtime stuff that we are aiming for
 results = model(imgPath, classes = [2])  # path to your image, class 2 for cars
 print(results[0].boxes)
 
 # Open and read the file with the marked parking spots
-with open('parking_points.json', 'r') as f:
+json_path = BASE_DIR / 'parking_points.json'
+with open(json_path, 'r') as f:
     data = json.load(f)
 
 # Variables to determine free and occupied
