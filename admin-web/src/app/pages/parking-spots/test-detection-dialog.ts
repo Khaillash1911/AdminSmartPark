@@ -24,6 +24,12 @@ interface SpotResult {
   free: number;
   occupied: number;
   spot_statuses: Record<string, boolean>;
+  double_parking_count?: number;
+  double_parking_violations?: Array<{
+    car_plate: string;
+    nearest_spot_id?: string;
+    notification_sent: boolean;
+  }>;
 }
 
 interface DetectionResult {
@@ -31,6 +37,8 @@ interface DetectionResult {
   total_spots: number;
   total_free: number;
   total_occupied: number;
+  total_double_parking?: number;
+  total_notifications?: number;
   images: SpotResult[];
 }
 
@@ -125,6 +133,16 @@ interface DetectionResult {
             <div class="grand-val">{{ result.images_processed }}</div>
             <div class="grand-lbl">Images</div>
           </div>
+          <div class="grand-card card-violations">
+            <mat-icon>report</mat-icon>
+            <div class="grand-val">{{ result.total_double_parking || 0 }}</div>
+            <div class="grand-lbl">Double Park</div>
+          </div>
+          <div class="grand-card card-notifications">
+            <mat-icon>notifications_active</mat-icon>
+            <div class="grand-val">{{ result.total_notifications || 0 }}</div>
+            <div class="grand-lbl">Notifications</div>
+          </div>
         </div>
 
         <!-- Per-image breakdown -->
@@ -139,6 +157,14 @@ interface DetectionResult {
             <div class="spot-row">
               <span class="spot-pill free-pill">🟢 {{ img.free }} free</span>
               <span class="spot-pill occ-pill">🔴 {{ img.occupied }} occupied</span>
+              <span class="spot-pill violation-pill">⚠ {{ img.double_parking_count || 0 }} double park</span>
+            </div>
+            <div class="violation-list" *ngIf="(img.double_parking_violations?.length || 0) > 0">
+              <div *ngFor="let v of img.double_parking_violations" class="violation-item">
+                <mat-icon>report</mat-icon>
+                <span>{{ v.car_plate || 'UNKNOWN' }}</span>
+                <small>{{ v.notification_sent ? 'sent to Live Violations' : 'notification not sent' }}</small>
+              </div>
             </div>
             <div class="spot-grid">
               <span *ngFor="let s of objEntries(img.spot_statuses)"
@@ -263,6 +289,8 @@ interface DetectionResult {
     .card-occupied { background: linear-gradient(135deg, #c62828, #ef5350); }
     .card-total    { background: linear-gradient(135deg, #4a148c, #7b1fa2); }
     .card-images   { background: linear-gradient(135deg, #1a237e, #1976d2); }
+    .card-violations { background: linear-gradient(135deg, #b71c1c, #ef5350); }
+    .card-notifications { background: linear-gradient(135deg, #ef6c00, #ff9800); }
 
     /* Per-image breakdown */
     .breakdown-title {
@@ -282,6 +310,15 @@ interface DetectionResult {
     .spot-pill { font-size: 11px; padding: 2px 10px; border-radius: 12px; font-weight: 600; }
     .free-pill { background: #e8f5e9; color: #2e7d32; }
     .occ-pill  { background: #ffebee; color: #c62828; }
+    .violation-pill { background: #fff3e0; color: #ef6c00; }
+    .violation-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+    .violation-item {
+      display: grid; grid-template-columns: 18px 1fr auto; align-items: center;
+      gap: 6px; border-radius: 8px; background: #fff7ed; color: #9a3412;
+      border: 1px solid #fed7aa; padding: 6px 8px; font-size: 12px;
+    }
+    .violation-item mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .violation-item small { color: #9a3412; opacity: .85; }
     .spot-grid { display: flex; flex-wrap: wrap; gap: 4px; }
     .spot-badge { font-size: 10px; padding: 2px 8px; border-radius: 8px; font-weight: 600; }
     .free-badge { background: #e8f5e9; color: #2e7d32; }

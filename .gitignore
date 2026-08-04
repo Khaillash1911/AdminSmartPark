@@ -15,6 +15,15 @@ __pycache__/
 # Uploads directory
 uploads/
 
+# Generated detector outputs
+detection/plate_crops/
+detection/test_output/
+detection/annotated_images/*_detected.jpg
+
+# Local simulator database
+backend/database/*.db
+backend/database/*.db-*
+
 # User specified ignores
 admin-app/
 plate_detector/
@@ -23,4 +32,3 @@ models/
 
 # Firebase Service Account Key
 serviceAccountKey.json
-

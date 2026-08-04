@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -8,9 +8,14 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { AnalyticsService } from '../../core/services/analytics.service';
+import { Subscription } from 'rxjs';
 import { ParkingMarkerDialogComponent } from './parking-marker-dialog';
 import { TestDetectionDialogComponent } from './test-detection-dialog';
+import {
+  ParkingOccupancyResponse,
+  ParkingOccupancyService,
+  ParkingOccupancyStatus
+} from '../../core/services/parking-occupancy.service';
 
 type ParkingSection = 'A' | 'B' | 'C';
 type RowOrientation = 'horizontal' | 'vertical';
@@ -21,6 +26,7 @@ interface ParkingRow {
   section: ParkingSection;
   total: number;
   occupied: number;
+  status?: ParkingOccupancyStatus;
   orientation: RowOrientation;
   left: number;
   top: number;
@@ -125,6 +131,8 @@ interface ParkingRow {
               <span><i class="dot c"></i> Section C</span>
             </div>
             <div class="status-legend">
+              <span class="mode-pill" [class.offline]="!apiOnline">{{ dataSource }} MODE</span>
+              <span class="updated-label">Last updated: {{ lastUpdatedLabel }}</span>
               <span><i class="level low"></i> Low</span>
               <span><i class="level medium"></i> Medium</span>
               <span><i class="level high"></i> High</span>
@@ -161,7 +169,7 @@ interface ParkingRow {
               class="parking-row"
               [class.horizontal]="row.orientation === 'horizontal'"
               [class.vertical]="row.orientation === 'vertical'"
-              [class.medium-or-high-occupancy]="getOccupancyPercentage(row) >= 55"
+              [class.medium-or-high-occupancy]="getOccupancyPercentage(row) >= 50"
               [class.high-occupancy]="getOccupancyPercentage(row) >= 80"
               [class.selected]="selectedRow?.id === row.id"
               [attr.data-section]="row.section"
@@ -363,6 +371,30 @@ interface ParkingRow {
       gap: 12px;
       align-items: center;
       flex-wrap: wrap;
+    }
+
+    .mode-pill {
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #eef4ff;
+      color: #175cd3;
+      border: 1px solid #b2ccff;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .35px;
+    }
+
+    .mode-pill.offline {
+      background: #fff3f3;
+      color: #b42318;
+      border-color: #fecdca;
+    }
+
+    .updated-label {
+      color: #667085;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
     }
 
     .dot, .level {
@@ -834,10 +866,16 @@ interface ParkingRow {
     }
   `]
 })
-export class ParkingSpotsPage implements OnInit {
+export class ParkingSpotsPage implements OnInit, OnDestroy {
   rows: ParkingRow[] = [];
   selectedRow: ParkingRow | null = null;
   isLoading = true;
+  dataSource = 'SIMULATION';
+  lastUpdatedLabel = 'Waiting for API';
+  apiOnline = false;
+
+  private occupancySubscription?: Subscription;
+  private manualRefreshSubscription?: Subscription;
 
   private readonly baseRows: ParkingRow[] = [
     // Section A, right side red area in the hand-drawn layout
@@ -872,12 +910,27 @@ export class ParkingSpotsPage implements OnInit {
   ];
 
   constructor(
-    private analyticsService: AnalyticsService,
+    private parkingOccupancyService: ParkingOccupancyService,
     private dialog: MatDialog
   ) { }
 
   ngOnInit() {
-    this.loadSpots();
+    this.rows = JSON.parse(JSON.stringify(this.baseRows));
+    this.selectedRow = this.rows[0] ?? null;
+    this.occupancySubscription = this.parkingOccupancyService.occupancy$.subscribe((data) => {
+      if (data) {
+        this.applyOccupancyData(data);
+      } else {
+        this.apiOnline = false;
+        this.lastUpdatedLabel = 'API offline';
+        this.isLoading = false;
+      }
+    });
+  }
+
+  ngOnDestroy() {
+    this.occupancySubscription?.unsubscribe();
+    this.manualRefreshSubscription?.unsubscribe();
   }
 
   addParking() {
@@ -908,87 +961,22 @@ export class ParkingSpotsPage implements OnInit {
     });
   }
 
-  async loadSpots() {
+  loadSpots() {
     this.isLoading = true;
-    try {
-      this.rows = JSON.parse(JSON.stringify(this.baseRows));
-
-      ['A', 'B', 'C', 'M', 'N'].forEach(id => {
-        const r = this.rows.find(x => x.id === id);
-        if (r) r.occupied = 0;
-      });
-
-      ['D', 'E', 'R', 'X', 'Q', 'J'].forEach(id => {
-        const r = this.rows.find(x => x.id === id);
-        if (r) r.occupied = r.total;
-      });
-
-      const nearlyFull: Record<string, number> = { 'F': 2, 'G': 1, 'H': 3, 'I': 2, 'S': 1, 'T': 5 };
-      Object.entries(nearlyFull).forEach(([id, gap]) => {
-        const r = this.rows.find(x => x.id === id);
-        if (r) r.occupied = r.total - gap;
-      });
-
-      const medium: Record<string, number> = { 'K': 0.65, 'L': 0.70, 'U': 0.60, 'W': 0.75, 'V': 0.62 };
-      Object.entries(medium).forEach(([id, multiplier]) => {
-        const r = this.rows.find(x => x.id === id);
-        if (r) r.occupied = Math.floor(r.total * multiplier);
-      });
-
-      this.rows.forEach(r => {
-         if (r.occupied === 0 && !['A', 'B', 'C', 'M', 'N'].includes(r.id)) {
-           r.occupied = Math.floor(r.total * 0.45); 
-         }
-      });
-    } catch (e) {
-      console.error('Failed to load parking layout', e);
-    } finally {
-      this.selectedRow = this.rows.find(r => r.id === this.selectedRow?.id) ?? this.rows[0] ?? null;
-      this.isLoading = false;
-    }
-  }
-
-  private get totalBaseSpots(): number {
-    return this.baseRows.reduce((sum, row) => sum + row.total, 0);
-  }
-
-  private distributeOccupiedAcrossRows(totalOccupied: number): ParkingRow[] {
-    const pressure: Record<string, number> = {
-      A: .70, B: .74, C: .48, D: .85, E: .80, F: .58,
-      G: .43, H: .62, I: .88, J: .83, K: .68, L: .39, M: .54, N: .81, O: .92, P: .60, Q: .66,
-      R: .45, S: .69, T: .84, U: .70, V: .56, W: .90, X: .72
-    };
-
-    const weightedCapacity = this.baseRows.reduce((sum, row) => sum + row.total * pressure[row.id], 0);
-    let remaining = totalOccupied;
-
-    const rows = this.baseRows.map(row => {
-      const target = Math.round((row.total * pressure[row.id] / weightedCapacity) * totalOccupied);
-      const occupied = Math.min(row.total, Math.max(0, target));
-      remaining -= occupied;
-      return { ...row, occupied };
-    });
-
-    let guard = 0;
-    while (remaining !== 0 && guard < 5000) {
-      for (const row of rows) {
-        if (remaining > 0 && row.occupied < row.total) {
-          row.occupied++;
-          remaining--;
-        } else if (remaining < 0 && row.occupied > 0) {
-          row.occupied--;
-          remaining++;
-        }
-        if (remaining === 0) break;
+    this.manualRefreshSubscription?.unsubscribe();
+    this.manualRefreshSubscription = this.parkingOccupancyService.getOccupancy().subscribe((data) => {
+      if (data) {
+        this.applyOccupancyData(data);
+      } else {
+        this.apiOnline = false;
+        this.lastUpdatedLabel = 'API offline';
+        this.isLoading = false;
       }
-      guard++;
-    }
-
-    return rows;
+    });
   }
 
   get totalSpots(): number {
-    return this.rows.reduce((sum, row) => sum + row.total, 0) || this.totalBaseSpots;
+    return this.rows.reduce((sum, row) => sum + row.total, 0) || this.baseRows.reduce((sum, row) => sum + row.total, 0);
   }
 
   get occupiedCount(): number {
@@ -1014,16 +1002,13 @@ export class ParkingSpotsPage implements OnInit {
   }
 
   getOccupancyStatus(row: ParkingRow): string {
-    const pct = this.getOccupancyPercentage(row);
-    if (pct >= 80) return 'High';
-    if (pct >= 55) return 'Medium';
-    return 'Low';
+    return row.status ?? (this.getOccupancyPercentage(row) >= 80 ? 'HIGH' : this.getOccupancyPercentage(row) >= 50 ? 'MEDIUM' : 'LOW');
   }
 
   getRowColor(row: ParkingRow): string {
-    const pct = this.getOccupancyPercentage(row);
-    if (pct >= 80) return '#d32f2f';
-    if (pct >= 55) return '#ffc107';
+    const status = this.getOccupancyStatus(row);
+    if (status === 'HIGH') return '#d32f2f';
+    if (status === 'MEDIUM') return '#ffc107';
     return '#12b76a';
   }
 
@@ -1057,6 +1042,43 @@ export class ParkingSpotsPage implements OnInit {
   }
 
   getTooltip(row: ParkingRow): string {
-    return `Section ${row.section} | Row ${row.id} | ${row.occupied}/${row.total} occupied | ${this.getAvailable(row)} available`;
+    return `Section ${row.section} | Row ${row.id} | ${row.occupied}/${row.total} occupied | ${this.getAvailable(row)} available | ${this.getOccupancyStatus(row)}`;
+  }
+
+  private applyOccupancyData(data: ParkingOccupancyResponse) {
+    const previousSelectedId = this.selectedRow?.id;
+    const apiRows = new Map<string, { capacity: number; occupied: number; status: ParkingOccupancyStatus }>();
+
+    data.sections.forEach(section => {
+      section.rows.forEach(row => {
+        apiRows.set(row.row, {
+          capacity: row.capacity,
+          occupied: row.occupied,
+          status: row.status
+        });
+      });
+    });
+
+    this.rows = this.baseRows.map(row => {
+      const apiRow = apiRows.get(row.id);
+      return {
+        ...row,
+        total: apiRow?.capacity ?? row.total,
+        occupied: apiRow?.occupied ?? row.occupied,
+        status: apiRow?.status ?? row.status
+      };
+    });
+
+    this.dataSource = data.source;
+    this.lastUpdatedLabel = this.formatLastUpdated(data.timestamp);
+    this.apiOnline = true;
+    this.selectedRow = this.rows.find(row => row.id === previousSelectedId) ?? this.rows[0] ?? null;
+    this.isLoading = false;
+  }
+
+  private formatLastUpdated(timestamp: string): string {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return 'Unknown';
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
 }

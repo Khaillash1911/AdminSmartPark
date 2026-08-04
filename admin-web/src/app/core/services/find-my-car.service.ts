@@ -41,6 +41,10 @@ export interface SamplePlatesResponse {
   }>;
 }
 
+export interface FindMyCarHealthResponse {
+  message: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -48,6 +52,10 @@ export class FindMyCarService {
   private baseUrl = 'http://127.0.0.1:5002';
 
   constructor(private http: HttpClient) {}
+
+  checkApiStatus(): Observable<FindMyCarHealthResponse> {
+    return this.http.get<FindMyCarHealthResponse>(this.baseUrl);
+  }
 
   findCarByPlate(plateNumber: string): Observable<FindCarResponse> {
     const cleanedPlate = plateNumber.replace(/\s+/g, '').toUpperCase();

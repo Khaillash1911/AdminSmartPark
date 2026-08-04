@@ -21,7 +21,7 @@ import easyocr
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from ultralytics import YOLO
 
 
@@ -220,6 +220,43 @@ def deskew_plate(plate_bgr: np.ndarray) -> np.ndarray:
 # OCR  (multi-pass)
 # ─────────────────────────────────────────────
 
+def clean_plate_text(text: str) -> str:
+    """
+    Match find_my_car_system's plate search format:
+    uppercase and keep letters/numbers only.
+    """
+    return re.sub(r"[^A-Z0-9]", "", text.upper())
+
+
+def _plate_score(text: str, conf: float) -> float:
+    """
+    Prefer confident Malaysian-like plate strings without being too strict.
+    """
+    if not text:
+        return -1.0
+
+    score = conf + min(len(text), 9) * 0.035
+    if 4 <= len(text) <= 9:
+        score += 0.25
+    if re.fullmatch(r"[A-Z]{1,4}[0-9]{1,4}[A-Z]?", text):
+        score += 0.45
+    elif re.search(r"[A-Z]", text) and re.search(r"[0-9]", text):
+        score += 0.15
+    return score
+
+
+def is_valid_plate_text(text: str, ocr_confidence: float) -> bool:
+    """
+    Accept realistic plate reads and reject low-confidence OCR fragments such
+    as "CD" or "RR93" that EasyOCR sometimes emits from reflections/bumper text.
+    """
+    if not (5 <= len(text) <= 9):
+        return False
+    if ocr_confidence < 0.25:
+        return False
+    return bool(re.fullmatch(r"[A-Z]{1,4}[0-9]{1,4}[A-Z]?", text))
+
+
 def _preprocess_for_ocr(gray: np.ndarray) -> list[np.ndarray]:
     """
     Return several preprocessed versions of a greyscale plate image.
@@ -240,13 +277,15 @@ def _preprocess_for_ocr(gray: np.ndarray) -> list[np.ndarray]:
                                      cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                      cv2.THRESH_BINARY, 31, 10)
 
-    return [enhanced, otsu, inverted, adaptive]
+    # Keep plain grayscale first because EasyOCR often performs best on a
+    # gently upscaled natural crop, just like the old find_my_car API flow.
+    return [gray, enhanced, otsu, inverted, adaptive]
 
 
-def read_plate(reader: easyocr.Reader, plate_bgr: np.ndarray) -> str:
+def read_plate(reader: easyocr.Reader, plate_bgr: np.ndarray) -> Tuple[str, str, float]:
     """
     OCR a deskewed plate crop using multiple preprocessing passes.
-    Returns the highest-confidence cleaned plate string, or '' if nothing found.
+    Returns (cleaned_text, raw_text, confidence).
     """
     # Upscale small crops — OCR needs enough pixels to distinguish characters
     h, w  = plate_bgr.shape[:2]
@@ -255,47 +294,136 @@ def read_plate(reader: easyocr.Reader, plate_bgr: np.ndarray) -> str:
         plate_bgr = cv2.resize(plate_bgr, (w * scale, h * scale),
                                interpolation=cv2.INTER_CUBIC)
 
-    gray      = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2GRAY)
-    best_text = ""
-    best_conf = 0.0
+    gray       = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2GRAY)
+    best_text  = ""
+    best_raw   = ""
+    best_conf  = 0.0
+    best_score = -1.0
 
     for variant in _preprocess_for_ocr(gray):
-        results = reader.readtext(variant, detail=1, paragraph=False,
-                                  allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-        if not results:
-            continue
+        read_attempts = [
+            {"allowlist": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"},
+            {}
+        ]
+        for options in read_attempts:
+            try:
+                results = reader.readtext(
+                    variant,
+                    detail=1,
+                    paragraph=False,
+                    decoder="beamsearch",
+                    width_ths=0.9,
+                    add_margin=0.08,
+                    **options
+                )
+            except Exception:
+                continue
 
-        # Concatenate all detected text boxes (handles split two-line plates)
-        combined_text = ""
-        combined_conf = 0.0
-        for (_, text, conf) in results:
-            cleaned = re.sub(r"[^A-Z0-9]", "", text.upper())
-            if cleaned:
-                combined_text += cleaned
-                combined_conf  = max(combined_conf, conf)
+            if not results:
+                continue
 
-        # Keep whichever variant gave the highest confidence + longest plate
-        score = combined_conf + len(combined_text) * 0.01
-        if combined_text and score > best_conf:
-            best_conf = score
-            best_text = combined_text
+            # Old API behavior: one highest-confidence text box is sometimes
+            # cleaner than concatenating noisy OCR fragments.
+            for (_, raw, conf) in results:
+                cleaned = clean_plate_text(raw)
+                score = _plate_score(cleaned, float(conf))
+                if score > best_score:
+                    best_score = score
+                    best_conf = float(conf)
+                    best_text = cleaned
+                    best_raw = raw
 
-    return best_text
+            # Newer behavior: concatenate boxes for split or two-line plates.
+            combined_raw = "".join(text for (_, text, _) in results)
+            combined_text = clean_plate_text(combined_raw)
+            combined_conf = max(float(conf) for (_, _, conf) in results)
+            score = _plate_score(combined_text, combined_conf)
+            if score > best_score:
+                best_score = score
+                best_conf = combined_conf
+                best_text = combined_text
+                best_raw = combined_raw
+
+    return best_text, best_raw, best_conf
+
+
+def expand_box(
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    frame_shape: tuple[int, int, int],
+    pad_ratio: float = 0.12,
+) -> tuple[int, int, int, int]:
+    """Add a little context around a detected plate box before OCR."""
+    h, w = frame_shape[:2]
+    bw = max(1, x2 - x1)
+    bh = max(1, y2 - y1)
+    pad_x = int(bw * pad_ratio)
+    pad_y = int(bh * pad_ratio)
+    return (
+        max(0, x1 - pad_x),
+        max(0, y1 - pad_y),
+        min(w, x2 + pad_x),
+        min(h, y2 + pad_y),
+    )
 
 
 # ─────────────────────────────────────────────
 # CSV
 # ─────────────────────────────────────────────
 
-FIELDNAMES = ["timestamp", "plate_text", "car_colour", "confidence",
-              "image_source", "crop_path"]
+FIELDNAMES = [
+    "timestamp",
+    "plate_text",
+    "raw_ocr_text",
+    "car_colour",
+    "plate_confidence",
+    "ocr_confidence",
+    "bbox_x1",
+    "bbox_y1",
+    "bbox_x2",
+    "bbox_y2",
+    "image_source",
+    "crop_path",
+]
 
 def init_csv(path: str):
-    """Create CSV with headers if it doesn't exist yet."""
-    if not os.path.exists(path):
+    """Create CSV with headers, upgrading older header-only files if needed."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
         with open(path, "w", newline="") as f:
             csv.writer(f).writerow(FIELDNAMES)
         print(f"[INFO] Created: {path}")
+        return
+
+    with open(path, newline="") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+
+    if rows and rows[0] != FIELDNAMES:
+        old_header = rows[0]
+        old_data = rows[1:]
+        with open(path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+            writer.writeheader()
+            for old_row in old_data:
+                mapped = dict(zip(old_header, old_row))
+                writer.writerow({
+                    "timestamp": mapped.get("timestamp", ""),
+                    "plate_text": mapped.get("plate_text", ""),
+                    "raw_ocr_text": mapped.get("raw_ocr_text", ""),
+                    "car_colour": mapped.get("car_colour", ""),
+                    "plate_confidence": mapped.get("plate_confidence", mapped.get("confidence", "")),
+                    "ocr_confidence": mapped.get("ocr_confidence", ""),
+                    "bbox_x1": mapped.get("bbox_x1", ""),
+                    "bbox_y1": mapped.get("bbox_y1", ""),
+                    "bbox_x2": mapped.get("bbox_x2", ""),
+                    "bbox_y2": mapped.get("bbox_y2", ""),
+                    "image_source": mapped.get("image_source", ""),
+                    "crop_path": mapped.get("crop_path", ""),
+                })
+        print(f"[INFO] Upgraded CSV header: {path}")
 
 def append_to_csv(path: str, row: dict):
     with open(path, "a", newline="") as f:
@@ -356,42 +484,65 @@ def process_image(
             if cx1 <= centre_x <= cx2 and cy1 <= centre_y <= cy2:
                 plates_in_car.append((px1, py1, px2, py2, float(pb.conf[0])))
 
-        # Fallback: use lower 40% of the car ROI if no plate was found
+        # Second pass: crop-level plate detection can work better when the
+        # plate is tiny in the full frame.
         if not plates_in_car:
-            band_y     = int(car_roi.shape[0] * 0.60)
-            plates_in_car = [(cx1, cy1 + band_y, cx2, cy2, 0.0)]
+            roi_results = plate_model(car_roi, conf=max(0.20, PLATE_CONF - 0.15), verbose=False)[0]
+            for rb in roi_results.boxes:
+                rx1, ry1, rx2, ry2 = map(int, rb.xyxy[0])
+                plates_in_car.append((cx1 + rx1, cy1 + ry1, cx1 + rx2, cy1 + ry2, float(rb.conf[0])))
+
+        # Last resort: use a narrow lower-center band of the car ROI. This is
+        # saved as UNKNOWN if OCR cannot read it, making failures inspectable.
+        if not plates_in_car:
+            roi_h, roi_w = car_roi.shape[:2]
+            band_y1 = cy1 + int(roi_h * 0.58)
+            band_y2 = cy1 + int(roi_h * 0.86)
+            band_x1 = cx1 + int(roi_w * 0.18)
+            band_x2 = cx1 + int(roi_w * 0.82)
+            plates_in_car = [(band_x1, band_y1, band_x2, band_y2, 0.0)]
 
         # ── Step 3: Deskew + OCR each plate ───────────────────────────────
         for (px1, py1, px2, py2, pconf) in plates_in_car:
+            px1, py1, px2, py2 = expand_box(px1, py1, px2, py2, frame.shape)
             plate_crop = frame[py1:py2, px1:px2]
             if plate_crop.size == 0:
                 continue
 
             deskewed   = deskew_plate(plate_crop)
-            plate_text = read_plate(reader, deskewed)
-
-            if not plate_text:
-                continue
+            plate_text, raw_ocr_text, ocr_confidence = read_plate(reader, deskewed)
+            valid_plate = is_valid_plate_text(plate_text, ocr_confidence)
+            csv_plate_text = plate_text if valid_plate else "UNKNOWN"
 
             # Save crop image
             crop_path = ""
             if SAVE_CROPS:
-                safe_name  = re.sub(r"[^\w]", "_", plate_text)
+                safe_name  = re.sub(r"[^\w]", "_", csv_plate_text)
                 crop_fname = f"{safe_name}_{datetime.now().strftime('%H%M%S%f')}.jpg"
                 crop_path  = os.path.join(CROPS_DIR, crop_fname)
                 cv2.imwrite(crop_path, deskewed)
 
             row = {
                 "timestamp":    timestamp,
-                "plate_text":   plate_text,
+                "plate_text":   csv_plate_text,
+                "raw_ocr_text": raw_ocr_text,
                 "car_colour":   car_colour,
-                "confidence":   f"{pconf:.2f}",
+                "plate_confidence": f"{pconf:.2f}",
+                "ocr_confidence": f"{ocr_confidence:.4f}",
+                "bbox_x1":      px1,
+                "bbox_y1":      py1,
+                "bbox_x2":      px2,
+                "bbox_y2":      py2,
                 "image_source": os.path.basename(image_path),
                 "crop_path":    crop_path,
             }
             append_to_csv(csv_path, row)
             detections.append(row)
-            print(f"  ✓ Plate: {plate_text:<12}  Colour: {car_colour:<8}  Conf: {pconf:.2f}")
+            status = "✓" if valid_plate else "?"
+            print(
+                f"  {status} Plate: {csv_plate_text:<12}  Colour: {car_colour:<8}  "
+                f"PlateConf: {pconf:.2f}  OCRConf: {ocr_confidence:.2f}"
+            )
 
     return detections
 
@@ -404,8 +555,17 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Malaysian Number Plate Detector — Cars Only")
-    parser.add_argument("input",         help="Image file or folder of images")
-    parser.add_argument("--plate-model", required=True, help="Path to your trained best.pt")
+    parser.add_argument(
+        "input",
+        nargs="?",
+        default=str(BASE_DIR / "sample_images"),
+        help="Image file or folder of images (default: detection/sample_images)"
+    )
+    parser.add_argument(
+        "--plate-model",
+        default=str(BASE_DIR / "best.pt"),
+        help="Path to your trained best.pt (default: detection/best.pt)"
+    )
     parser.add_argument("--csv",         default=OUTPUT_CSV, help="Output CSV path")
     args = parser.parse_args()
 

@@ -28,8 +28,22 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
   ],
   template: `
     <div class="page-container">
-      <h1 class="page-title">Find My Car Test</h1>
-      <p class="page-subtitle">Search a number plate to test if the car location can be retrieved from the backend.</p>
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Find My Car Test</h1>
+          <p class="page-subtitle">Search a number plate to test if the car location can be retrieved from the backend.</p>
+        </div>
+
+        <div class="api-status" [class.status-online]="apiStatus === 'online'" [class.status-offline]="apiStatus === 'offline'">
+          <span class="status-dot"></span>
+          <span class="status-label">
+            {{ apiStatus === 'checking' ? 'Checking API...' : apiStatus === 'online' ? 'API running' : 'API offline' }}
+          </span>
+          <button mat-icon-button aria-label="Refresh API status" (click)="checkApiStatus()" [disabled]="apiStatus === 'checking'">
+            <mat-icon>refresh</mat-icon>
+          </button>
+        </div>
+      </div>
 
       <!-- Search Section -->
       <mat-card class="search-card">
@@ -51,7 +65,7 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
         <div class="sample-plates-section" *ngIf="samplePlates.length > 0">
           <p class="sample-title">Sample Plates:</p>
           <mat-chip-set aria-label="Sample Plates">
-            <mat-chip *ngforEach="let plate of samplePlates" (click)="setSearchQuery(plate.car_plate_search)">
+            <mat-chip *ngFor="let plate of samplePlates" (click)="setSearchQuery(plate.car_plate_search)">
               {{ plate.car_plate }} ({{ plate.car_model }})
             </mat-chip>
           </mat-chip-set>
@@ -153,9 +167,57 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
       margin-bottom: 8px;
       color: var(--text-primary);
     }
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
     .page-subtitle {
       color: var(--text-secondary);
-      margin-bottom: 24px;
+      margin: 0;
+    }
+    .api-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 4px 0 12px;
+      border: 1px solid #d8dce3;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #5f6b7a;
+      flex-shrink: 0;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #9ca3af;
+    }
+    .status-online {
+      border-color: #b8dfc0;
+      background: #f0fff4;
+      color: #25633a;
+    }
+    .status-online .status-dot {
+      background: #2e7d32;
+      box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.12);
+    }
+    .status-offline {
+      border-color: #f0b8b8;
+      background: #fff5f5;
+      color: #b3261e;
+    }
+    .status-offline .status-dot {
+      background: #d32f2f;
+      box-shadow: 0 0 0 3px rgba(211, 47, 47, 0.12);
+    }
+    .status-label {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
     }
     .search-card {
       margin-bottom: 24px;
@@ -291,6 +353,20 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
         font-size: 22px;
       }
 
+      .page-header {
+        flex-direction: column;
+        margin-bottom: 18px;
+      }
+
+      .api-status {
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      .status-label {
+        flex: 1;
+      }
+
       .search-card {
         padding: 12px;
       }
@@ -336,11 +412,27 @@ export class FindMyCarTestPage implements OnInit {
   hasSearched: boolean = false;
   carResult: CarResult | null = null;
   errorMessage: string = '';
+  apiStatus: 'checking' | 'online' | 'offline' = 'checking';
 
   constructor(private findMyCarService: FindMyCarService) {}
 
   ngOnInit() {
+    this.checkApiStatus();
     this.loadSamplePlates();
+  }
+
+  checkApiStatus() {
+    this.apiStatus = 'checking';
+
+    this.findMyCarService.checkApiStatus().subscribe({
+      next: () => {
+        this.apiStatus = 'online';
+      },
+      error: (err) => {
+        this.apiStatus = 'offline';
+        console.warn('Find My Car API is not reachable.', err);
+      }
+    });
   }
 
   loadSamplePlates() {
@@ -394,6 +486,7 @@ export class FindMyCarTestPage implements OnInit {
           this.carResult = null;
         } else {
           // Backend is offline or other error
+          this.apiStatus = 'offline';
           this.errorMessage = 'Unable to connect to backend. Make sure Flask is running on port 5002.';
           console.error('Find My Car API Error:', err);
         }

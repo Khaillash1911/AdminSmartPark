@@ -5,5 +5,11 @@
     "pathRewrite": { "^/detector-api": "" },
     "changeOrigin": true,
     "logLevel": "warn"
+  },
+  "/api/parking": {
+    "target": "http://localhost:5060",
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "warn"
   }
 }
