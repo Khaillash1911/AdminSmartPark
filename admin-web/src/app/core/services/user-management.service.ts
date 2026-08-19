@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Firestore, collection, getDocs, query, orderBy, doc, updateDoc, getDoc } from '@angular/fire/firestore';
+import { Firestore, collection, getDocs, doc, updateDoc } from '@angular/fire/firestore';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -21,8 +21,20 @@ export class UserManagementService {
   constructor(private firestore: Firestore) {}
 
   async getAllUsers(): Promise<AppUser[]> {
-    const snap = await getDocs(query(collection(this.firestore, 'users'), orderBy('name')));
-    return snap.docs.map(d => ({ uid: d.id, ...d.data() } as AppUser));
+    const snap = await getDocs(collection(this.firestore, 'users'));
+    return snap.docs
+      .map(d => ({ uid: d.id, ...d.data() } as AppUser))
+      .sort((a, b) => this.createdAtMillis(b.created_at) - this.createdAtMillis(a.created_at));
+  }
+
+  private createdAtMillis(value: any): number {
+    if (!value) return 0;
+    if (typeof value.toMillis === 'function') return value.toMillis();
+    if (typeof value.toDate === 'function') return value.toDate().getTime();
+    if (typeof value.seconds === 'number') return value.seconds * 1000;
+    if (value instanceof Date) return value.getTime();
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 
   searchUsers(users: AppUser[], query: string): AppUser[] {

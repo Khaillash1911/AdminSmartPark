@@ -11,6 +11,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { Firestore, doc, getDoc, setDoc, serverTimestamp } from '@angular/fire/firestore';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export type Point = [number, number];
@@ -23,6 +24,15 @@ interface ImageEntry {
   naturalH: number;
   spots: SpotPolygon[];        // completed 4-point spots
   currentPoints: Point[];      // points being placed for the active spot
+}
+
+interface FirestorePoint {
+  x: number;
+  y: number;
+}
+
+interface FirestoreSpot {
+  points: FirestorePoint[];
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -47,7 +57,7 @@ interface ImageEntry {
         <mat-icon class="header-icon">add_location_alt</mat-icon>
         <div>
           <h2 class="dialog-title">Add Parking Spots</h2>
-          <p class="dialog-subtitle">Click 4 corners on each parking bay to define its boundary</p>
+          <p class="dialog-subtitle">Cloudinary img6 loads directly in the browser — click 4 corners on each parking bay</p>
         </div>
       </div>
       <button mat-icon-button (click)="close()" matTooltip="Close">
@@ -101,9 +111,9 @@ interface ImageEntry {
 
       <!-- Canvas area -->
       <div class="canvas-area">
-        <div *ngIf="images.length === 0" class="canvas-placeholder">
-          <mat-icon>image</mat-icon>
-          <p>Upload parking lot images to begin marking spots</p>
+          <div *ngIf="images.length === 0" class="canvas-placeholder">
+            <mat-icon>image</mat-icon>
+          <p>Loading the bundled parking image…</p>
           <label class="upload-btn-lg">
             <mat-icon>add_photo_alternate</mat-icon> Choose Images
             <input type="file" accept="image/*" multiple (change)="onFilesPicked($event)" hidden />
@@ -159,8 +169,8 @@ interface ImageEntry {
         </div>
         <div class="save-path-hint" *ngIf="totalSpots > 0">
           <mat-icon class="hint-icon">info</mat-icon>
-          Save as <code>parking_points.json</code> — navigate to
-          <code>bounding_box/</code> in the save dialog
+          Saves coordinates to <code>parking_maps/{{ activeImage?.name }}</code> in Firestore.
+          The Cloudinary image is not re-uploaded.
         </div>
       </div>
       <div class="footer-actions">
@@ -399,15 +409,19 @@ export class ParkingMarkerDialogComponent implements AfterViewInit, OnDestroy {
   images: ImageEntry[] = [];
   activeIdx = 0;
   isSaving = false;
+  isUploading = false;
 
   private ctx!: CanvasRenderingContext2D;
   private mousePos: Point | null = null;
+  private readonly imageCache = new Map<string, HTMLImageElement>();
+  private readonly bundledImageUrl = 'https://res.cloudinary.com/lftlvmu7/image/upload/smartpark/parking_sources/img6.jpg';
 
   constructor(
     private dialogRef: MatDialogRef<ParkingMarkerDialogComponent>,
     @Inject(MAT_DIALOG_DATA) public data: any,
     private snack: MatSnackBar,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private firestore: Firestore
   ) {}
 
   ngAfterViewInit() {
@@ -415,6 +429,7 @@ export class ParkingMarkerDialogComponent implements AfterViewInit, OnDestroy {
       const ctx = this.canvasRef.nativeElement.getContext('2d');
       if (ctx) this.ctx = ctx;
     }
+    this.loadBundledImage();
   }
 
   ngOnDestroy() {}
@@ -429,37 +444,91 @@ export class ParkingMarkerDialogComponent implements AfterViewInit, OnDestroy {
   }
 
   // ── File handling ───────────────────────────────────────────────────────
-  onFilesPicked(event: Event) {
+  private loadBundledImage() {
+    this.addImage('img6', this.bundledImageUrl, true);
+  }
+
+  private addImage(name: string, source: string, notifyOnError = false) {
+    if (this.images.some(image => image.name === name)) return;
+
+    const img = new Image();
+    img.onload = () => {
+      this.imageCache.set(source, img);
+      this.images.push({
+        name,
+        dataUrl: source,
+        naturalW: img.naturalWidth,
+        naturalH: img.naturalHeight,
+        spots: [],
+        currentPoints: []
+      });
+      this.loadSavedMarkings(name);
+      this.cdr.detectChanges();
+      if (this.images.length === 1) {
+        this.activeIdx = 0;
+        setTimeout(() => this.renderCanvas());
+      }
+    };
+    img.onerror = () => {
+      if (notifyOnError) {
+        this.snack.open('Bundled img6.jpg could not be loaded.', 'Dismiss', { duration: 5000 });
+      }
+    };
+    img.src = source;
+  }
+
+  private async loadSavedMarkings(name: string) {
+    try {
+      const snapshot = await getDoc(doc(this.firestore, `parking_maps/${name}`));
+      if (!snapshot.exists()) return;
+      const saved = snapshot.data()['spots'] as Record<string, FirestoreSpot | Point[]> | undefined;
+      const image = this.images.find(entry => entry.name === name);
+      if (!image || !saved) return;
+      image.spots = Object.keys(saved)
+        .sort((a, b) => Number(a) - Number(b))
+        .map(key => this.fromFirestoreSpot(saved[key]));
+      image.currentPoints = [];
+      this.cdr.detectChanges();
+      if (this.activeImage === image) setTimeout(() => this.renderCanvas());
+    } catch (error) {
+      console.warn(`Could not load saved markings for ${name}`, error);
+    }
+  }
+
+  private fromFirestoreSpot(saved: FirestoreSpot | Point[]): SpotPolygon {
+    if (Array.isArray(saved)) return saved as SpotPolygon;
+    return (saved.points ?? []).map(point => [point.x, point.y] as Point);
+  }
+
+  private toFirestoreSpots(spots: SpotPolygon[]): Record<string, FirestoreSpot> {
+    return Object.fromEntries(spots.map((spot, index) => [
+      String(index),
+      { points: spot.map(([x, y]) => ({ x, y })) }
+    ]));
+  }
+
+  async onFilesPicked(event: Event) {
     const input = event.target as HTMLInputElement;
     if (!input.files) return;
     const files = Array.from(input.files);
-
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target!.result as string;
-        const img = new Image();
-        img.onload = () => {
-          this.images.push({
-            name: file.name.replace(/\.[^.]+$/, ''),
-            dataUrl,
-            naturalW: img.naturalWidth,
-            naturalH: img.naturalHeight,
-            spots: [],
-            currentPoints: []
-          });
-          this.cdr.detectChanges();
-          if (this.images.length === 1) {
-            this.activeIdx = 0;
-            this.renderCanvas();
-          }
-        };
-        img.src = dataUrl;
-      };
-      reader.readAsDataURL(file);
-    });
-
     input.value = '';
+    this.isUploading = true;
+    try {
+      for (const file of files) {
+        const body = new FormData();
+        body.append('file', file);
+        const response = await fetch('/detector-api/parking-map-image', { method: 'POST', body });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || `Could not upload ${file.name}`);
+        this.addImage(data.name, data.image_url);
+      }
+      this.snack.open('Image uploaded to Cloudinary. Mark its parking spots and save.', 'OK', { duration: 4000 });
+    } catch (error: any) {
+      this.snack.open(`Parking image upload failed: ${error?.message ?? error}`, 'Dismiss', { duration: 7000 });
+    } finally {
+      this.isUploading = false;
+      this.cdr.detectChanges();
+    }
   }
 
   // ── Navigation ──────────────────────────────────────────────────────────
@@ -570,9 +639,8 @@ export class ParkingMarkerDialogComponent implements AfterViewInit, OnDestroy {
     const ctx = canvasEl.getContext('2d')!;
 
     // Draw image
-    const bgImg = new Image();
-    bgImg.src = img.dataUrl;
-    ctx.drawImage(bgImg, 0, 0, img.naturalW, img.naturalH);
+    const bgImg = this.imageCache.get(img.dataUrl);
+    if (bgImg) ctx.drawImage(bgImg, 0, 0, img.naturalW, img.naturalH);
 
     // Draw completed spots
     img.spots.forEach((spot, idx) => {
@@ -675,75 +743,39 @@ export class ParkingMarkerDialogComponent implements AfterViewInit, OnDestroy {
     return result;
   }
 
-  /**
-   * Save Markings
-   * ─────────────
-   * Uses the File System Access API (Chrome/Edge) so the user can navigate to
-   * bounding_box/ and save directly as parking_points.json.
-   * Falls back to a plain browser download on Firefox/Safari.
-   */
+  /** Save only polygon coordinates; the Cloudinary source image is unchanged. */
   async saveMarkings() {
     this.isSaving = true;
     const json = this.buildJson();
-    const content = JSON.stringify(json, null, 2);
 
     try {
-      // ── File System Access API (Chrome 86+, Edge 86+) ──────────────────
-      if ('showSaveFilePicker' in window) {
-        const fileHandle = await (window as any).showSaveFilePicker({
-          suggestedName: 'parking_points.json',
-          types: [{
-            description: 'JSON file',
-            accept: { 'application/json': ['.json'] }
-          }]
-        });
-        const writable = await fileHandle.createWritable();
-        await writable.write(content);
-        await writable.close();
-        this.snack.open(
-          '✅ parking_points.json saved! Move it to bounding_box/ if needed.',
-          'OK',
-          { duration: 5000, panelClass: 'snack-success' }
-        );
-        this.dialogRef.close({ saved: true, data: json });
-
-      } else {
-        // ── Fallback: plain download ────────────────────────────────────────
-        this.fallbackDownload(content);
-        this.snack.open(
-          '📥 parking_points.json downloaded — move it to bounding_box/',
-          'OK',
-          { duration: 6000 }
-        );
-        this.dialogRef.close({ saved: true, data: json });
-      }
+      await Promise.all(this.images.map(image => setDoc(
+        doc(this.firestore, `parking_maps/${image.name}`),
+        {
+          name: image.name,
+          image_url: image.dataUrl.startsWith('http') ? image.dataUrl : null,
+          natural_width: image.naturalW,
+          natural_height: image.naturalH,
+          spots: this.toFirestoreSpots(image.spots),
+          updated_at: serverTimestamp()
+        },
+        { merge: true }
+      )));
+      this.snack.open('✅ Markings saved. Test Detection will use these latest coordinates.', 'OK', {
+        duration: 5000,
+        panelClass: 'snack-success'
+      });
+      this.dialogRef.close({ saved: true, data: json });
     } catch (err: any) {
-      // User cancelled the save dialog — not an error
-      if (err?.name === 'AbortError') {
-        this.snack.open('Save cancelled.', '', { duration: 2000 });
-      } else {
-        console.error('Save failed:', err);
-        // Still offer the download as a last resort
-        this.fallbackDownload(content);
-        this.snack.open(
-          '⚠️ Direct save failed. Downloaded instead — move to bounding_box/',
-          'Dismiss',
-          { duration: 6000 }
-        );
-      }
+      console.error('Firestore marking save failed:', err);
+      this.snack.open(
+        `Could not save markings to Firestore: ${err?.message ?? 'Unknown error'}`,
+        'Dismiss',
+        { duration: 8000 }
+      );
     } finally {
       this.isSaving = false;
     }
-  }
-
-  private fallbackDownload(content: string) {
-    const blob = new Blob([content], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'parking_points.json';
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   close() {
