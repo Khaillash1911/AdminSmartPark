@@ -163,11 +163,45 @@ class ParkingOccupancySimulator:
         capacity_factor = row_config.capacity / 48
         fullness = occupied / row_config.capacity if row_config.capacity else 0
 
-        expected_arrivals = arrival_rate * behaviour["arrival_multiplier"] * row_variation * capacity_factor * (1 - fullness * 0.55)
-        expected_departures = departure_rate * behaviour["departure_multiplier"] * row_variation * capacity_factor * (0.35 + fullness * 0.75)
+        # Make the process mean-reverting instead of allowing 100% occupancy
+        # to become an absorbing state. Arrival pressure disappears as the row
+        # fills, while departure pressure increases above the time-of-day
+        # target occupancy.
+        target_fullness = min(
+            0.96,
+            max(0.04, self._target_percentage(now, row_config.section) * row_variation),
+        )
+        target_occupied = round(row_config.capacity * target_fullness)
+        occupancy_gap = target_occupied - occupied
+        available_ratio = max(0.0, 1.0 - fullness)
+
+        expected_arrivals = (
+            arrival_rate
+            * behaviour["arrival_multiplier"]
+            * row_variation
+            * capacity_factor
+            * available_ratio
+        )
+        expected_departures = (
+            departure_rate
+            * behaviour["departure_multiplier"]
+            * row_variation
+            * capacity_factor
+            * (0.35 + fullness * 0.75)
+        )
+
+        if occupancy_gap > 0:
+            expected_arrivals += min(2.5, occupancy_gap * 0.12)
+        elif occupancy_gap < 0:
+            expected_departures += min(3.0, abs(occupancy_gap) * 0.16)
 
         arrivals = self._small_count(expected_arrivals)
         departures = self._small_count(expected_departures)
+        if occupied >= row_config.capacity:
+            # A full row must free at least one space on its next simulation
+            # tick; there is no available space for a successful arrival.
+            arrivals = 0
+            departures = max(1, departures)
         return arrivals, departures
 
     def _time_rates(self, now: datetime) -> tuple[float, float]:

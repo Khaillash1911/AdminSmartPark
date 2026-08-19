@@ -9,7 +9,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatDividerModule } from '@angular/material/divider';
-import { FindMyCarService, CarResult } from '../../core/services/find-my-car.service';
+import { FindMyCarService, CarResult, PlateDetectionResponse, RegisteredCarUser } from '../../core/services/find-my-car.service';
 
 @Component({
   selector: 'app-find-my-car-test',
@@ -30,10 +30,16 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
     <div class="page-container">
       <div class="page-header">
         <div>
-          <h1 class="page-title">Find My Car Test</h1>
-          <p class="page-subtitle">Search a number plate to test if the car location can be retrieved from the backend.</p>
+          <h1 class="page-title">Find My Car</h1>
+          <p class="page-subtitle">Search for a parked car or add one automatically from an image.</p>
         </div>
 
+        <div class="header-actions">
+        <input #carImageInput hidden type="file" accept="image/jpeg,image/png,image/webp" (change)="onCarImageSelected($event)">
+        <button mat-flat-button color="primary" (click)="carImageInput.click()" [disabled]="isDetecting || apiStatus !== 'online'">
+          <mat-icon>add_photo_alternate</mat-icon>
+          {{ isDetecting ? 'Reading Plate...' : 'Add Car Image' }}
+        </button>
         <div class="api-status" [class.status-online]="apiStatus === 'online'" [class.status-offline]="apiStatus === 'offline'">
           <span class="status-dot"></span>
           <span class="status-label">
@@ -43,7 +49,73 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
             <mat-icon>refresh</mat-icon>
           </button>
         </div>
+        </div>
       </div>
+
+      <div class="modal-backdrop" *ngIf="detectionPreview" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <mat-card class="confirmation-dialog">
+          <mat-card-header>
+            <mat-card-title id="confirm-title">Confirm detected number plate</mat-card-title>
+            <mat-card-subtitle>Nothing will be added to Firebase until you confirm.</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="comparison-grid">
+              <div class="preview-panel">
+                <span class="comparison-label">Extracted plate image</span>
+                <img [src]="detectionPreview.best_detection?.plate_image_url" alt="Extracted number plate">
+              </div>
+              <div class="preview-panel detected-text-panel">
+                <span class="comparison-label">OCR text</span>
+                <mat-form-field appearance="outline">
+                  <mat-label>Number plate</mat-label>
+                  <input matInput [(ngModel)]="confirmedPlate" maxlength="15" autocomplete="off" (blur)="lookupRegisteredUser()">
+                </mat-form-field>
+                <small>OCR confidence: {{ ((detectionPreview.best_detection?.ocr_confidence || 0) * 100) | number:'1.0-1' }}%</small>
+              </div>
+            </div>
+            <div class="match-banner" [class.no-match]="!matchedUserFound">
+              <mat-icon>{{ matchedUserFound ? 'how_to_reg' : 'person_search' }}</mat-icon>
+              <span>{{ matchedUserFound
+                ? 'Registered user matched. Owner and vehicle details were filled from the users collection.'
+                : 'No registered user matched this plate. Enter the owner and vehicle details manually.' }}</span>
+            </div>
+            <h3 class="details-title">Car and owner details</h3>
+            <div class="details-grid">
+              <mat-form-field appearance="outline"><mat-label>Owner UID</mat-label><input matInput [(ngModel)]="carDetails.uid" [readonly]="matchedUserFound" required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Owner name</mat-label><input matInput [(ngModel)]="carDetails.name" [readonly]="matchedUserFound" required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Email</mat-label><input matInput type="email" [(ngModel)]="carDetails.email" [readonly]="matchedUserFound" required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Student ID</mat-label><input matInput [(ngModel)]="carDetails.student_id" [readonly]="matchedUserFound" required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Car model</mat-label><input matInput [(ngModel)]="carDetails.car_model" [readonly]="matchedUserFound" placeholder="Toyota Vios" required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Car colour</mat-label><input matInput [(ngModel)]="carDetails.car_colour" [readonly]="matchedUserFound" required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Parking level (generated)</mat-label><input matInput [(ngModel)]="carDetails.parking_level" readonly required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Parking area (generated)</mat-label><input matInput [(ngModel)]="carDetails.parking_zone" readonly required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Parking row (generated)</mat-label><input matInput [(ngModel)]="carDetails.parking_row" readonly required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Parking spot (generated)</mat-label><input matInput [(ngModel)]="carDetails.parking_slot" readonly required></mat-form-field>
+              <mat-form-field appearance="outline"><mat-label>Entry time</mat-label><input matInput type="datetime-local" [(ngModel)]="carDetails.entry_time" required></mat-form-field>
+              <mat-form-field appearance="outline">
+                <mat-label>Status</mat-label>
+                <select matNativeControl [(ngModel)]="carDetails.status"><option value="parked">Parked</option><option value="exited">Exited</option></select>
+              </mat-form-field>
+              <label class="oku-field"><input type="checkbox" [(ngModel)]="carDetails.is_oku" [disabled]="matchedUserFound"> Registered OKU vehicle</label>
+            </div>
+            <p class="dialog-error" *ngIf="uploadError">{{ uploadError }}</p>
+          </mat-card-content>
+          <mat-card-actions align="end">
+            <button mat-button (click)="cancelConfirmation()" [disabled]="isConfirming">Cancel</button>
+            <button mat-flat-button color="primary" (click)="confirmDetectedCar()" [disabled]="isConfirming || !isCarFormComplete()">
+              <mat-icon>check</mat-icon>
+              {{ isConfirming ? 'Adding...' : 'Correct & Add' }}
+            </button>
+          </mat-card-actions>
+        </mat-card>
+      </div>
+
+      <mat-card class="success-card" *ngIf="uploadSuccess">
+        <mat-card-content><mat-icon>check_circle</mat-icon><span>{{ uploadSuccess }}</span></mat-card-content>
+      </mat-card>
+      <mat-card class="error-card" *ngIf="uploadError && !detectionPreview">
+        <mat-card-content><mat-icon>error_outline</mat-icon><span>{{ uploadError }}</span></mat-card-content>
+      </mat-card>
 
       <!-- Search Section -->
       <mat-card class="search-card">
@@ -174,6 +246,23 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
       gap: 16px;
       margin-bottom: 24px;
     }
+    .header-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgba(15, 23, 42, .62); }
+    .confirmation-dialog { width: min(720px, 100%); max-height: 90vh; overflow: auto; padding: 8px; }
+    .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+    .preview-panel { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+    .preview-panel img { width: 100%; min-height: 150px; max-height: 240px; object-fit: contain; border-radius: 10px; background: #eef1f5; }
+    .comparison-label { color: var(--text-secondary); font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+    .detected-text-panel { justify-content: center; }
+    .detected-text-panel input { text-transform: uppercase; font-size: 24px; font-weight: 700; letter-spacing: 2px; }
+    .details-title { margin: 28px 0 14px; }
+    .match-banner { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding: 12px; border-radius: 8px; background: #e8f5e9; color: #25633a; }
+    .match-banner.no-match { background: #fff8e1; color: #805b10; }
+    .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+    .oku-field { display: flex; align-items: center; gap: 8px; min-height: 56px; color: var(--text-primary); }
+    .dialog-error { color: #b3261e; margin: 12px 0 0; }
+    .success-card { margin-bottom: 24px; background: #effaf1; color: #25633a; }
+    .success-card mat-card-content { display: flex; align-items: center; gap: 10px; }
     .page-subtitle {
       color: var(--text-secondary);
       margin: 0;
@@ -357,6 +446,10 @@ import { FindMyCarService, CarResult } from '../../core/services/find-my-car.ser
         flex-direction: column;
         margin-bottom: 18px;
       }
+      .header-actions { width: 100%; justify-content: stretch; }
+      .header-actions > button { flex: 1; }
+      .comparison-grid { grid-template-columns: 1fr; gap: 16px; }
+      .details-grid { grid-template-columns: 1fr; }
 
       .api-status {
         width: 100%;
@@ -413,6 +506,14 @@ export class FindMyCarTestPage implements OnInit {
   carResult: CarResult | null = null;
   errorMessage: string = '';
   apiStatus: 'checking' | 'online' | 'offline' = 'checking';
+  isDetecting = false;
+  isConfirming = false;
+  detectionPreview: PlateDetectionResponse | null = null;
+  confirmedPlate = '';
+  uploadError = '';
+  uploadSuccess = '';
+  carDetails = this.emptyCarDetails();
+  matchedUserFound = false;
 
   constructor(private findMyCarService: FindMyCarService) {}
 
@@ -446,6 +547,122 @@ export class FindMyCarTestPage implements OnInit {
         console.warn('Could not load sample plates (backend might not support it yet).', err);
       }
     });
+  }
+
+  onCarImageSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+
+    this.isDetecting = true;
+    this.uploadError = '';
+    this.uploadSuccess = '';
+    this.findMyCarService.detectPlate(file).subscribe({
+      next: (response) => {
+        this.isDetecting = false;
+        if (!response.plate_detected || !response.best_detection) {
+          this.uploadError = 'No number plate could be detected. Please try a clearer car image.';
+          return;
+        }
+        this.detectionPreview = response;
+        this.confirmedPlate = response.best_detection.plate_number;
+        this.carDetails = this.emptyCarDetails();
+        Object.assign(this.carDetails, response.parking_location);
+        this.matchedUserFound = !!response.matched_user;
+        if (response.matched_user) this.applyRegisteredUser(response.matched_user);
+      },
+      error: (err) => {
+        this.isDetecting = false;
+        this.uploadError = err.error?.message || 'The image could not be processed.';
+      }
+    });
+  }
+
+  cancelConfirmation() {
+    this.detectionPreview = null;
+    this.confirmedPlate = '';
+    this.carDetails = this.emptyCarDetails();
+    this.matchedUserFound = false;
+    this.uploadError = '';
+  }
+
+  confirmDetectedCar() {
+    if (!this.detectionPreview || !this.isCarFormComplete()) return;
+    this.isConfirming = true;
+    this.uploadError = '';
+    this.findMyCarService.confirmCar(this.detectionPreview.confirmation_token, this.confirmedPlate, this.carDetails).subscribe({
+      next: (response) => {
+        this.isConfirming = false;
+        this.detectionPreview = null;
+        this.uploadSuccess = response.message;
+        this.searchQuery = this.confirmedPlate.replace(/[^a-z0-9]/gi, '').toUpperCase();
+        this.confirmedPlate = '';
+        this.carDetails = this.emptyCarDetails();
+        this.matchedUserFound = false;
+        this.loadSamplePlates();
+      },
+      error: (err) => {
+        this.isConfirming = false;
+        this.uploadError = err.error?.message || 'The car could not be added to Firebase.';
+      }
+    });
+  }
+
+  isCarFormComplete(): boolean {
+    const required = [
+      this.confirmedPlate, this.carDetails.uid, this.carDetails.name,
+      this.carDetails.email, this.carDetails.student_id, this.carDetails.car_model,
+      this.carDetails.car_colour, this.carDetails.parking_level,
+      this.carDetails.parking_zone, this.carDetails.parking_row,
+      this.carDetails.parking_slot, this.carDetails.entry_time
+    ];
+    return required.every(value => value.trim().length > 0);
+  }
+
+  lookupRegisteredUser() {
+    if (!this.confirmedPlate.trim()) return;
+    this.findMyCarService.findRegisteredUser(this.confirmedPlate).subscribe({
+      next: ({ found, user }) => {
+        this.matchedUserFound = found && !!user;
+        if (user) {
+          this.applyRegisteredUser(user);
+        } else {
+          const parking = {
+            parking_level: this.carDetails.parking_level,
+            parking_zone: this.carDetails.parking_zone,
+            parking_row: this.carDetails.parking_row,
+            parking_slot: this.carDetails.parking_slot,
+            status: this.carDetails.status,
+            entry_time: this.carDetails.entry_time
+          };
+          this.carDetails = { ...this.emptyCarDetails(), ...parking };
+        }
+      },
+      error: () => { this.matchedUserFound = false; }
+    });
+  }
+
+  private applyRegisteredUser(user: RegisteredCarUser) {
+    Object.assign(this.carDetails, {
+      uid: user.uid,
+      name: user.name,
+      email: user.email,
+      student_id: user.student_id,
+      car_model: user.car_model,
+      car_colour: user.car_colour,
+      is_oku: user.is_oku
+    });
+  }
+
+  private emptyCarDetails() {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return {
+      uid: '', name: '', email: '', student_id: '', car_model: '', car_colour: '',
+      is_oku: false, parking_level: '', parking_zone: '', parking_row: '',
+      parking_slot: '', status: 'parked', entry_time: now.toISOString().slice(0, 16)
+    };
   }
 
   setSearchQuery(plate: string) {

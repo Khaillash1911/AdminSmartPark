@@ -19,12 +19,15 @@ import re
 import sys
 import time
 import traceback
+import hashlib
+from urllib.parse import urlparse, unquote
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 # ─────────────────────────────────────────────
 # Paths — resolve relative to this file
@@ -37,6 +40,7 @@ PARKING_JSON    = ROOT_DIR / "bounding_box" / "parking_points.json"
 SAMPLE_IMAGES   = BASE_DIR / "sample_images"
 ANNOTATED_DIR   = BASE_DIR / "annotated_images"
 PLATE_MODEL     = BASE_DIR / "best.pt"
+CAR_SEGMENTATION_MODEL = BASE_DIR / "yolov8m-seg.pt"
 FIREBASE_KEY    = ROOT_DIR / "find_my_car_system" / "backend" / "serviceAccountKey.json"
 
 # Add detection folder to python path so we can import its modules
@@ -46,10 +50,46 @@ app = Flask(__name__)
 CORS(app)   # allow requests from localhost:4300
 
 
-DOUBLE_PARK_CAR_COVERAGE_THRESHOLD = 0.18
+DOUBLE_PARK_CAR_COVERAGE_THRESHOLD = 0.25
 CAR_CLASS_ID = 2
 CAR_CONF = 0.4
 IOU_THRESHOLD = 0.3
+SPOT_COVERAGE_THRESHOLD = 0.15
+MULTI_SPOT_CAR_COVERAGE_THRESHOLD = DOUBLE_PARK_CAR_COVERAGE_THRESHOLD
+MIN_PARKING_INTERACTION_THRESHOLD = 0.03
+
+_car_model = None
+
+
+def _get_car_model():
+    global _car_model
+    if _car_model is None:
+        from ultralytics import YOLO
+        if not CAR_SEGMENTATION_MODEL.exists():
+            raise FileNotFoundError(
+                f"YOLO segmentation model is missing: {CAR_SEGMENTATION_MODEL}. "
+                "Install yolov8m-seg.pt before starting the detector API."
+            )
+        _car_model = YOLO(str(CAR_SEGMENTATION_MODEL))
+    return _car_model
+
+
+def _configure_cloudinary():
+    from dotenv import load_dotenv
+    import cloudinary
+
+    load_dotenv(ROOT_DIR / "find_my_car_system" / "backend" / ".env", override=True)
+    parsed = urlparse(os.getenv("CLOUDINARY_URL", "").strip())
+    if not all((parsed.hostname, parsed.username, parsed.password)):
+        return None
+    cloudinary.reset_config()
+    cloudinary.config(
+        cloud_name=parsed.hostname,
+        api_key=unquote(parsed.username),
+        api_secret=unquote(parsed.password),
+        secure=True,
+    )
+    return cloudinary
 
 
 # ─────────────────────────────────────────────
@@ -147,7 +187,19 @@ def _write_double_park_notification(db, violation: dict[str, Any]) -> bool:
                 "student_id": vehicle.get("student_id"),
             })
 
-        db.collection("notifications").document(doc_key).set(notification, merge=True)
+        notification_ref = db.collection("notifications").document(doc_key)
+        existing_snapshot = notification_ref.get()
+        if existing_snapshot.exists:
+            existing = existing_snapshot.to_dict() or {}
+            if existing.get("resolved") or existing.get("is_read"):
+                # The same offence has happened again after being handled.
+                # Reopen the existing document so the live badge/feed triggers
+                # again without creating a duplicate notification record.
+                notification_ref.set(notification)
+            # An already-active offence remains one active notification.
+            return True
+
+        notification_ref.set(notification)
         return True
     except Exception as exc:
         print(f"[WARN] Failed to write double-park notification: {exc}", flush=True)
@@ -218,17 +270,254 @@ def _double_parking_for_car(car_poly, parking_polys: list[tuple[str, Any]]) -> t
     car_center = car_poly.centroid
     center_inside_marked_spot = False
 
+    meaningful_spot_overlaps = 0
     for spot_id, spot_poly in parking_polys:
         overlap = car_poly.intersection(spot_poly).area / car_poly.area
+        if overlap >= MULTI_SPOT_CAR_COVERAGE_THRESHOLD:
+            meaningful_spot_overlaps += 1
         if overlap > best_overlap:
             best_overlap = overlap
             nearest_spot_id = spot_id
         if spot_poly.contains(car_center):
             center_inside_marked_spot = True
 
-    is_double_parked = (not center_inside_marked_spot) and best_overlap < DOUBLE_PARK_CAR_COVERAGE_THRESHOLD
-    reason = "outside_marked_parking_spots" if is_double_parked else "inside_or_overlapping_marked_spot"
+    crosses_multiple_spots = meaningful_spot_overlaps >= 2
+    interacts_with_parking = best_overlap >= MIN_PARKING_INTERACTION_THRESHOLD
+    outside_spots = (
+        interacts_with_parking
+        and not center_inside_marked_spot
+        and best_overlap < DOUBLE_PARK_CAR_COVERAGE_THRESHOLD
+    )
+    is_double_parked = crosses_multiple_spots or outside_spots
+    reason = (
+        "across_multiple_marked_spots" if crosses_multiple_spots else
+        "outside_marked_parking_spots" if outside_spots else
+        "inside_or_overlapping_marked_spot"
+    )
     return is_double_parked, round(best_overlap, 4), nearest_spot_id, reason
+
+
+def _normalise_spots(raw_spots):
+    spots = {}
+    for spot_id, value in (raw_spots or {}).items():
+        points = value.get("points", []) if isinstance(value, dict) else value
+        coords = []
+        for point in points:
+            if isinstance(point, dict):
+                coords.append([float(point["x"]), float(point["y"])])
+            else:
+                coords.append([float(point[0]), float(point[1])])
+        if len(coords) >= 3:
+            spots[str(spot_id)] = coords
+    return spots
+
+
+@app.post("/parking-map-image")
+def upload_parking_map_image():
+    if "file" not in request.files or not request.files["file"].filename:
+        return jsonify({"success": False, "message": "No image selected"}), 400
+
+    upload = request.files["file"]
+    data = upload.read()
+    if len(data) > 20 * 1024 * 1024:
+        return jsonify({"success": False, "message": "Image must be smaller than 20 MB"}), 413
+
+    cloudinary = _configure_cloudinary()
+    if cloudinary is None:
+        return jsonify({"success": False, "message": "Cloudinary is not configured"}), 503
+
+    import cloudinary.uploader
+    digest = hashlib.sha256(data).hexdigest()
+    original_name = Path(secure_filename(upload.filename)).stem or "parking-map"
+    result = cloudinary.uploader.upload(
+        data,
+        public_id=f"smartpark/parking_sources/by_hash/{digest}",
+        resource_type="image",
+        overwrite=False,
+    )
+    return jsonify({
+        "success": True,
+        "name": original_name,
+        "image_url": result["secure_url"],
+        "cloudinary_public_id": result["public_id"],
+        "image_sha256": digest,
+    })
+
+
+@app.post("/detect-map")
+def detect_map():
+    payload = request.get_json(silent=True) or {}
+    image_url = str(payload.get("image_url", "")).strip()
+    map_name = secure_filename(str(payload.get("name", "parking-map"))) or "parking-map"
+    parking_spots = _normalise_spots(payload.get("spots"))
+    parsed_url = urlparse(image_url)
+    if parsed_url.scheme != "https" or parsed_url.hostname != "res.cloudinary.com":
+        return jsonify({"success": False, "message": "A Cloudinary HTTPS image URL is required"}), 400
+    if not parking_spots:
+        return jsonify({"success": False, "message": "No marked parking spots were supplied"}), 400
+
+    try:
+        import requests
+        import cv2
+        import numpy as np
+        from shapely.geometry import Polygon
+        from shapely.geometry.base import BaseGeometry
+
+        response = requests.get(image_url, timeout=20)
+        response.raise_for_status()
+        if len(response.content) > 20 * 1024 * 1024:
+            return jsonify({"success": False, "message": "Cloudinary image is too large"}), 413
+        frame = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            return jsonify({"success": False, "message": "Cloudinary image could not be decoded"}), 400
+
+        model = _get_car_model()
+        results = model(frame, conf=CAR_CONF, classes=[CAR_CLASS_ID], imgsz=1280, verbose=False)[0]
+        car_boxes = [box for box in results.boxes if int(box.cls[0]) == CAR_CLASS_ID]
+        mask_contours = results.masks.xy if results.masks is not None else []
+        car_polys = []
+        for index, box in enumerate(car_boxes):
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            outline = mask_contours[index] if index < len(mask_contours) else []
+            car_poly: BaseGeometry
+            if len(outline) >= 3:
+                car_poly = Polygon(outline).buffer(0)
+                if car_poly.geom_type == "MultiPolygon":
+                    car_poly = max(car_poly.geoms, key=lambda geometry: geometry.area)
+            else:
+                # Defensive fallback only; the configured model normally always returns masks.
+                car_poly = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+            if car_poly.is_empty or car_poly.area <= 0:
+                continue
+            car_outline = [[round(float(x), 1), round(float(y), 1)] for x, y in car_poly.exterior.coords]
+            car_polys.append((car_poly, (x1, y1, x2, y2), car_outline))
+
+        parking_polys = [(spot_id, Polygon(coords)) for spot_id, coords in parking_spots.items()]
+
+        def overlap_by_spot(car_poly):
+            intersection_areas = []
+            for spot_id, spot_poly in parking_polys:
+                intersection_area = car_poly.intersection(spot_poly).area
+                intersection_areas.append((spot_id, intersection_area))
+            # Parking polygons describe only the ground footprint, whereas a
+            # segmentation mask traces the full visible car body. Measure each
+            # bay as a share of the mask area that is actually within any bay.
+            total_marked_footprint = sum(area for _, area in intersection_areas)
+            overlaps = [
+                (spot_id, area / max(total_marked_footprint, 1))
+                for spot_id, area in intersection_areas
+            ]
+            footprint_ratio = total_marked_footprint / max(car_poly.area, 1)
+            return sorted(overlaps, key=lambda item: item[1], reverse=True), footprint_ratio
+
+        # Process every car that has a meaningful part of its traced mask in
+        # the marked parking area. Cars in the unmarked background are ignored.
+        relevant_cars = []
+        for car_poly, bbox, outline in car_polys:
+            overlaps, footprint_ratio = overlap_by_spot(car_poly)
+            if footprint_ratio < MIN_PARKING_INTERACTION_THRESHOLD:
+                continue
+            relevant_cars.append((car_poly, bbox, outline, overlaps))
+
+        spot_statuses = {spot_id: False for spot_id, _ in parking_polys}
+        occupied_spot_ids = set()
+        spot_overlap_percentages = {spot_id: 0.0 for spot_id, _ in parking_polys}
+        car_results = []
+        for car_index, (_car_poly, bbox, outline, overlaps) in enumerate(relevant_cars, start=1):
+            qualifying_spots = [
+                spot_id for spot_id, ratio in overlaps
+                if ratio > DOUBLE_PARK_CAR_COVERAGE_THRESHOLD
+            ]
+            if len(qualifying_spots) >= 2:
+                car_spot_ids = qualifying_spots
+                car_classification = "DOUBLE_PARK"
+            elif overlaps and overlaps[0][1] > 0:
+                # At or below 25% in an additional bay is normal parking. Only
+                # the bay containing the largest share of the car is occupied.
+                car_spot_ids = [overlaps[0][0]]
+                car_classification = "NORMAL_PARKING"
+            else:
+                car_spot_ids = []
+                car_classification = "NO_RELEVANT_VEHICLE"
+
+            occupied_spot_ids.update(car_spot_ids)
+            for spot_id, ratio in overlaps:
+                spot_overlap_percentages[spot_id] = max(
+                    spot_overlap_percentages[spot_id], round(ratio * 100, 2)
+                )
+            car_results.append({
+                "car_index": car_index,
+                "bbox": {"x1": bbox[0], "y1": bbox[1], "x2": bbox[2], "y2": bbox[3]},
+                "outline": outline,
+                "classification": car_classification,
+                "intersected_spot_ids": car_spot_ids,
+                "spot_overlap_percentages": {
+                    spot_id: round(ratio * 100, 2) for spot_id, ratio in overlaps
+                },
+            })
+
+        for spot_id in occupied_spot_ids:
+            if spot_id in spot_statuses:
+                spot_statuses[spot_id] = True
+
+        parking_classification = (
+            "DOUBLE_PARK" if any(car["classification"] == "DOUBLE_PARK" for car in car_results) else
+            "NORMAL_PARKING" if car_results else
+            "NO_RELEVANT_VEHICLE"
+        )
+
+        db = _init_firestore()
+        violations = []
+        for car, (car_poly, bbox, _outline, overlaps) in zip(car_results, relevant_cars):
+            if car["classification"] != "DOUBLE_PARK":
+                continue
+            nearest, overlap = max(overlaps, key=lambda item: item[1])
+            reason = "across_multiple_marked_spots"
+            violation = {
+                "image": image_url,
+                "image_stem": map_name,
+                "car_index": car["car_index"],
+                "car_plate": "UNKNOWN",
+                "bbox": {"x1": bbox[0], "y1": bbox[1], "x2": bbox[2], "y2": bbox[3]},
+                "overlap_ratio": overlap,
+                "nearest_spot_id": nearest,
+                "intersected_spot_ids": car["intersected_spot_ids"],
+                "reason": reason,
+            }
+            violation["notification_sent"] = _write_double_park_notification(db, violation)
+            violations.append(violation)
+
+        occupied = sum(1 for value in spot_statuses.values() if value)
+        image_result = {
+            "image": map_name,
+            "image_url": image_url,
+            "cars_detected": len(relevant_cars),
+            "spots": len(parking_spots),
+            "free": len(parking_spots) - occupied,
+            "occupied": occupied,
+            "spot_statuses": spot_statuses,
+            "double_parking_count": len(violations),
+            "double_parking_violations": violations,
+            "parking_classification": parking_classification,
+            "intersected_spot_ids": sorted(occupied_spot_ids, key=lambda spot_id: int(spot_id)),
+            "spot_overlap_percentages": spot_overlap_percentages,
+            "double_park_threshold_percent": DOUBLE_PARK_CAR_COVERAGE_THRESHOLD * 100,
+            "car_outlines": [car["outline"] for car in car_results],
+            "cars": car_results,
+        }
+        return jsonify({
+            "success": True,
+            "images_processed": 1,
+            "total_spots": len(parking_spots),
+            "total_free": image_result["free"],
+            "total_occupied": occupied,
+            "total_double_parking": len(violations),
+            "total_notifications": sum(1 for item in violations if item["notification_sent"]),
+            "images": [image_result],
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(exc)}), 500
 
 
 # ─────────────────────────────────────────────
@@ -324,7 +613,7 @@ def _detection_generator():
         import numpy as np
         import cv2
 
-        model_path = ROOT_DIR / "yolov8n.pt"
+        model_path = BASE_DIR / "yolov8n.pt"
         model = YOLO(str(model_path))
         yield emit("log", message="✓ YOLOv8 model loaded successfully",
                    level="success", ts=datetime.now().isoformat())

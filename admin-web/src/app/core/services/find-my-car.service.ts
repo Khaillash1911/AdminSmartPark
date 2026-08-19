@@ -45,6 +45,59 @@ export interface FindMyCarHealthResponse {
   message: string;
 }
 
+export interface PlateDetection {
+  plate_number: string;
+  raw_ocr_text: string;
+  detection_confidence: number;
+  ocr_confidence: number;
+  plate_image_url: string;
+}
+
+export interface PlateDetectionResponse {
+  success: boolean;
+  message: string;
+  plate_detected: boolean;
+  confirmation_token: string;
+  uploaded_image_url: string;
+  result_image: string;
+  best_detection: PlateDetection | null;
+  detections: PlateDetection[];
+  matched_user: RegisteredCarUser | null;
+  parking_location: {
+    parking_level: string;
+    parking_zone: string;
+    parking_row: string;
+    parking_slot: string;
+  };
+}
+
+export interface RegisteredCarUser {
+  uid: string;
+  name: string;
+  email: string;
+  student_id: string;
+  car_plate: string;
+  car_model: string;
+  car_colour: string;
+  is_oku: boolean;
+}
+
+export interface ConfirmCarDetails {
+  uid: string;
+  name: string;
+  email: string;
+  student_id: string;
+  car_model: string;
+  car_colour: string;
+  is_oku: boolean;
+  parking_level: string;
+  parking_zone: string;
+  parking_row: string;
+  parking_slot: string;
+  status: string;
+  entry_time: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -64,5 +117,26 @@ export class FindMyCarService {
 
   getSamplePlates(): Observable<SamplePlatesResponse> {
     return this.http.get<SamplePlatesResponse>(`${this.baseUrl}/sample-plates`);
+  }
+
+  detectPlate(file: File): Observable<PlateDetectionResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<PlateDetectionResponse>(`${this.baseUrl}/detect-plate`, formData);
+  }
+
+  confirmCar(confirmationToken: string, plateNumber: string, details: ConfirmCarDetails): Observable<{ success: boolean; message: string }> {
+    return this.http.post<{ success: boolean; message: string }>(`${this.baseUrl}/confirm-car`, {
+      confirmation_token: confirmationToken,
+      plate_number: plateNumber,
+      ...details
+    });
+  }
+
+  findRegisteredUser(plateNumber: string): Observable<{ success: boolean; found: boolean; user: RegisteredCarUser | null }> {
+    const plate = plateNumber.replace(/[^a-z0-9]/gi, '').toUpperCase();
+    return this.http.get<{ success: boolean; found: boolean; user: RegisteredCarUser | null }>(
+      `${this.baseUrl}/registered-user/${plate}`
+    );
   }
 }

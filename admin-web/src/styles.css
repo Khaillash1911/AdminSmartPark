@@ -109,3 +109,10 @@ button,
 
 /* Snackbar success */
 .snack-success { --mdc-snackbar-container-color: #2e7d32 !important; }
+
+/* Prominent top-right alert after a parking test creates a violation. */
+.double-parking-toast {
+  --mdc-snackbar-container-color: #b71c1c !important;
+  --mdc-snackbar-supporting-text-color: #ffffff !important;
+  --mat-snack-bar-button-color: #ffeb3b !important;
+}

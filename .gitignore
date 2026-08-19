@@ -2,6 +2,11 @@
 .venv/
 venv/
 env/
+.env
+.env.*
+!.env.example
+# Cloudinary API key/secret are stored in this local file.
+find_my_car_system/backend/.env
 
 # Python cache
 __pycache__/
@@ -29,6 +34,17 @@ admin-app/
 plate_detector/
 plate detector/
 models/
+# Find My Car requires this trained plate-detector model on a fresh device.
+!find_my_car_system/backend/models/
+!find_my_car_system/backend/models/best.pt
+
+# Runtime OCR and upload artifacts (images are persisted in Cloudinary).
+find_my_car_system/backend/static/car_images/
+find_my_car_system/backend/static/plate_crops/
+find_my_car_system/backend/static/results/
+
+# Old segmentation weights; the detector now uses yolov8m-seg.pt.
+detection/yolov8n-seg.pt
 
 # Firebase Service Account Key
 serviceAccountKey.json
