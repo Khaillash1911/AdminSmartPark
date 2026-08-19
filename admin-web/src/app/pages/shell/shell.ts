@@ -54,21 +54,21 @@ import { Observable } from 'rxjs';
             
             <a mat-list-item routerLink="/admin/parking-spots" routerLinkActive="active-link">
               <mat-icon matListItemIcon>local_parking</mat-icon>
-              <div matListItemTitle>Parking Spots</div>
+              <div matListItemTitle>Parking Layout</div>
             </a>
 
             <a mat-list-item routerLink="/admin/find-my-car-test" routerLinkActive="active-link">
               <mat-icon matListItemIcon>search</mat-icon>
-              <div matListItemTitle>Find My Car Test</div>
+              <div matListItemTitle>Find My Car</div>
             </a>
 
             <a mat-list-item routerLink="/admin/view-data" routerLinkActive="active-link">
               <mat-icon matListItemIcon>people</mat-icon>
-              <div matListItemTitle>View Data</div>
+              <div matListItemTitle>User Management</div>
             </a>
 
             <a mat-list-item routerLink="/admin/notifications" routerLinkActive="active-link">
-              <mat-icon matListItemIcon [matBadge]="unresolvedCount$ | async" matBadgeColor="warn" [matBadgeHidden]="(unresolvedCount$ | async) === 0">notifications</mat-icon>
+              <mat-icon matListItemIcon [matBadge]="(unresolvedCount$ | async) ?? 0" matBadgeColor="warn" [matBadgeHidden]="((unresolvedCount$ | async) ?? 0) < 1">notifications</mat-icon>
               <div matListItemTitle>Violations</div>
             </a>
             

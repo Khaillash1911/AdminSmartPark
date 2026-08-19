@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
-import { Firestore, collection, onSnapshot, query, orderBy, doc, updateDoc, where, getDocs, setDoc } from '@angular/fire/firestore';
-import { Observable } from 'rxjs';
+import { Firestore, collection, onSnapshot, query, orderBy, doc, setDoc } from '@angular/fire/firestore';
+import { distinctUntilChanged, map, Observable, shareReplay } from 'rxjs';
 
 export interface AdminNotification {
   id: string;
@@ -48,12 +48,13 @@ export class NotificationAdminService {
   }
 
   getUnresolvedCount(): Observable<number> {
-    return new Observable(observer => {
-      const q = query(collection(this.firestore, 'notifications'), where('resolved', '==', false));
-      const unsub = onSnapshot(q, snap => {
-        observer.next(snap.size);
-      }, err => observer.error(err));
-      return () => unsub();
-    });
+    // Count the canonical violations register used by the page. The old code
+    // counted the separate notifications collection, where stale records could
+    // leave a badge behind after the corresponding violation was resolved.
+    return this.listenToAllViolations().pipe(
+      map(items => items.filter(item => !item.resolved).length),
+      distinctUntilChanged(),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
   }
 }
