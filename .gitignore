@@ -2,10 +2,11 @@
 .venv/
 venv/
 env/
+
+# Secrets and local configuration
 .env
 .env.*
 !.env.example
-# Cloudinary API key/secret are stored in this local file.
 find_my_car_system/backend/.env
 
 # Python cache
@@ -17,34 +18,43 @@ __pycache__/
 # Mac OS
 .DS_Store
 
-# Uploads directory
+# Node/Angular dependencies and build output
+node_modules/
+.angular/
+dist/
+coverage/
+
+# Runtime uploads, caches, and generated images
 uploads/
-
-# Generated detector outputs
-detection/plate_crops/
-detection/test_output/
-detection/annotated_images/*_detected.jpg
-
-# Local simulator database
-backend/database/*.db
-backend/database/*.db-*
-
-# User specified ignores
-admin-app/
-plate_detector/
-plate detector/
-models/
-# Find My Car requires this trained plate-detector model on a fresh device.
-!find_my_car_system/backend/models/
-!find_my_car_system/backend/models/best.pt
-
-# Runtime OCR and upload artifacts (images are persisted in Cloudinary).
+find_my_car_system/backend/uploads/
 find_my_car_system/backend/static/car_images/
 find_my_car_system/backend/static/plate_crops/
 find_my_car_system/backend/static/results/
 
-# Old segmentation weights; the detector now uses yolov8m-seg.pt.
-detection/yolov8n-seg.pt
+# Archived/independent projects
+admin-app/
+plate_detector/
+plate detector/
+
+# Models are ignored by default; these two are runtime requirements.
+models/
+!find_my_car_system/backend/models/
+!find_my_car_system/backend/models/best.pt
+!detection/yolov8m-seg.pt
+
+# Offline research output
+research/**/outputs/
+research/**/*.png
+research/**/*.log
+
+# The dashboard runtime depends on these selected trained research artifacts.
+!research/parking-analytics/monthly/outputs/
+research/parking-analytics/monthly/outputs/*
+!research/parking-analytics/monthly/outputs/models/
+research/parking-analytics/monthly/outputs/models/*
+!research/parking-analytics/monthly/outputs/models/best_entry_prediction_model.pkl
+!research/parking-analytics/monthly/outputs/models/best_exit_prediction_model.pkl
+!research/parking-analytics/monthly/outputs/models/model_features.txt
 
 # Firebase Service Account Key
 serviceAccountKey.json

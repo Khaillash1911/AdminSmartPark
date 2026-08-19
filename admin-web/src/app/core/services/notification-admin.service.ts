@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Firestore, collection, onSnapshot, query, orderBy, doc, updateDoc, where, getDocs } from '@angular/fire/firestore';
+import { Firestore, collection, onSnapshot, query, orderBy, doc, updateDoc, where, getDocs, setDoc } from '@angular/fire/firestore';
 import { Observable } from 'rxjs';
 
 export interface AdminNotification {
@@ -11,6 +11,14 @@ export interface AdminNotification {
   timestamp: any;
   is_read: boolean;
   resolved: boolean;
+  source?: string;
+  image_source?: string;
+  reason?: string;
+  overlap_ratio?: number;
+  uid?: string;
+  name?: string;
+  email?: string;
+  student_id?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -19,16 +27,24 @@ export class NotificationAdminService {
 
   listenToAllViolations(): Observable<AdminNotification[]> {
     return new Observable(observer => {
-      const q = query(collection(this.firestore, 'notifications'), orderBy('timestamp', 'desc'));
+      const q = query(collection(this.firestore, 'violations'), orderBy('timestamp', 'desc'));
       const unsub = onSnapshot(q, snap => {
-        observer.next(snap.docs.map(d => ({ id: d.id, ...d.data() } as AdminNotification)));
+        observer.next(
+          snap.docs
+            .map(d => ({ id: d.id, ...d.data() } as AdminNotification))
+            .filter(item => item.type === 'double_park' || item.type === 'oku_violation')
+        );
       }, err => observer.error(err));
       return () => unsub();
     });
   }
 
   async markResolved(id: string): Promise<void> {
-    await updateDoc(doc(this.firestore, `notifications/${id}`), { resolved: true, is_read: true });
+    const update = { resolved: true, is_read: true, status: 'resolved' };
+    await Promise.all([
+      setDoc(doc(this.firestore, `violations/${id}`), update, { merge: true }),
+      setDoc(doc(this.firestore, `notifications/${id}`), update, { merge: true })
+    ]);
   }
 
   getUnresolvedCount(): Observable<number> {

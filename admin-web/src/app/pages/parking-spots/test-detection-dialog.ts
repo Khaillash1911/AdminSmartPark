@@ -1,6 +1,5 @@
 import { Component, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -67,12 +66,22 @@ interface DetectionResult {
   images: SpotResult[];
 }
 
+interface OkuDetectionResult {
+  success: boolean;
+  plate_detected: boolean;
+  plate_number?: string;
+  registered_user_found?: boolean;
+  is_oku?: boolean;
+  violation: boolean;
+  notification_sent: boolean;
+  message: string;
+}
+
 @Component({
   selector: 'app-test-detection-dialog',
   standalone: true,
   imports: [
     CommonModule,
-    FormsModule,
     MatDialogModule,
     MatButtonModule,
     MatIconModule,
@@ -87,7 +96,7 @@ interface DetectionResult {
         <mat-icon class="header-icon">biotech</mat-icon>
         <div>
           <h2 class="dialog-title">Test Parking Detection</h2>
-          <p class="dialog-subtitle">Runs Python YOLO against the selected Cloudinary image and latest Firestore markings</p>
+          <p class="dialog-subtitle">Tests occupancy, double parking, and uploaded OKU-bay plate eligibility</p>
         </div>
       </div>
       <button mat-icon-button (click)="close()" matTooltip="Close">
@@ -105,6 +114,14 @@ interface DetectionResult {
       </span>
       <span class="spacer"></span>
       <span class="selected-map" *ngIf="selectedMap">Selected: {{ selectedMap.name }}</span>
+    </div>
+
+    <div class="oku-result" *ngIf="okuResult" [class.oku-violation]="okuResult.violation" [class.oku-authorised]="!okuResult.violation">
+      <mat-icon>{{ okuResult.violation ? 'report' : 'verified_user' }}</mat-icon>
+      <div>
+        <strong>{{ okuResult.plate_detected ? (okuResult.plate_number || 'Plate detected') : 'No plate detected' }}</strong>
+        <span>{{ okuResult.message }}</span>
+      </div>
     </div>
 
     <mat-divider></mat-divider>
@@ -135,6 +152,12 @@ interface DetectionResult {
           </div>
           <div *ngIf="!isLoadingMarkings && maps.length === 0" class="empty-list">No test images found</div>
         </div>
+
+        <button type="button" class="oku-upload-btn" [disabled]="isOkuRunning || !selectedMap" (click)="runOkuDetection()">
+          <mat-icon>{{ isOkuRunning ? 'hourglass_top' : 'accessible' }}</mat-icon>
+          {{ isOkuRunning ? 'Checking Plate...' : 'Test OKU Bay Image' }}
+        </button>
+        <div class="oku-upload-hint">Checks the selected saved image. No second upload or image storage.</div>
       </div>
 
       <div class="detection-workspace">
@@ -275,6 +298,12 @@ interface DetectionResult {
     .status-text { font-size: 12px; color: #555; }
     .selected-map { font-size: 12px; font-weight: 700; color: #555; }
     .spacer { flex: 1; }
+    .oku-result { display: flex; align-items: center; gap: 10px; padding: 9px 20px; border-left: 4px solid #2e7d32; background: #e8f5e9; }
+    .oku-result.oku-violation { border-left-color: #c62828; background: #ffebee; }
+    .oku-result mat-icon { color: #2e7d32; }
+    .oku-result.oku-violation mat-icon { color: #c62828; }
+    .oku-result div { display: flex; flex-direction: column; gap: 2px; }
+    .oku-result span { color: #555; font-size: 12px; }
 
     /* Body */
     .dialog-body {
@@ -295,6 +324,11 @@ interface DetectionResult {
     .thumb-test-btn:disabled { opacity: .45; cursor: default; }
     .thumb-test-btn mat-icon { font-size: 17px; width: 17px; height: 17px; }
     .empty-list { text-align: center; color: #aaa; font-size: 12px; padding: 18px 4px; }
+    .oku-upload-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 10px; padding: 9px 7px; border: 0; border-radius: 7px; background: #5e35b1; color: white; cursor: pointer; font-size: 11px; font-weight: 700; }
+    .oku-upload-btn:hover { background: #4527a0; }
+    .oku-upload-btn:disabled { opacity: .55; cursor: default; }
+    .oku-upload-btn mat-icon { font-size: 18px; width: 18px; height: 18px; }
+    .oku-upload-hint { margin-top: 5px; color: #888; font-size: 9px; line-height: 1.25; text-align: center; }
     .detection-workspace { flex: 1; min-width: 0; display: flex; overflow: hidden; }
     .image-preview { width: 58%; min-width: 0; padding: 14px; background: #0d1117; display: flex; flex-direction: column; justify-content: center; }
     .preview-stage { position: relative; width: 100%; line-height: 0; }
@@ -485,6 +519,8 @@ interface DetectionResult {
 })
 export class TestDetectionDialogComponent {
   result: DetectionResult | null = null;
+  okuResult: OkuDetectionResult | null = null;
+  isOkuRunning = false;
   imageReady = false;
   isLoadingMarkings = true;
   isRunning = false;
@@ -573,6 +609,43 @@ export class TestDetectionDialogComponent {
       this.errorMessage = error?.message || 'Could not connect to the Python detector API.';
     } finally {
       this.isRunning = false;
+      this.cdr.detectChanges();
+    }
+  }
+
+  async runOkuDetection() {
+    if (!this.selectedMap) return;
+    this.isOkuRunning = true;
+    this.okuResult = null;
+    this.errorMessage = '';
+    try {
+      const response = await fetch('/detector-api/detect-oku-violation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_url: this.selectedMap.image_url, name: this.selectedMap.name })
+      });
+      const responseText = await response.text();
+      let data: OkuDetectionResult;
+      try {
+        data = JSON.parse(responseText) as OkuDetectionResult;
+      } catch {
+        if (response.status === 404) {
+          throw new Error('The running detector is an older version. Restart the detector API, then try again.');
+        }
+        throw new Error(`Detector returned an invalid response (HTTP ${response.status}).`);
+      }
+      if (!response.ok || !data.success) throw new Error(data.message || 'OKU plate validation failed.');
+      this.okuResult = data;
+      this.snackBar.open(data.message, 'Dismiss', {
+        duration: 8000,
+        horizontalPosition: 'end',
+        verticalPosition: 'top',
+        panelClass: [data.violation ? 'double-parking-toast' : 'snack-success']
+      });
+    } catch (error: any) {
+      this.errorMessage = error?.message || 'Could not process the OKU bay image.';
+    } finally {
+      this.isOkuRunning = false;
       this.cdr.detectChanges();
     }
   }

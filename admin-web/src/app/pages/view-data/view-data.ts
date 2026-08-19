@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AppUser, UserManagementService } from '../../core/services/user-management.service';
@@ -14,6 +14,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-view-data',
@@ -40,11 +41,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
         <h1 class="page-title">User Management</h1>
         <p class="page-subtitle">View and manage all registered drivers in the system</p>
       </div>
-      <div>
-        <button mat-raised-button color="primary" (click)="loadUsers()">
-          <mat-icon>refresh</mat-icon> Reload Users
-        </button>
-      </div>
+      <span class="live-badge"><span class="live-dot"></span> Live updates</span>
     </div>
 
     <mat-card class="table-card">
@@ -165,6 +162,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     }
     .page-title { margin: 0 0 4px 0; font-size: 28px; color: var(--primary-dark-blue); }
     .page-subtitle { margin: 0; color: var(--text-secondary); }
+    .live-badge { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border-radius: 999px; background: #e8f5e9; color: #2e7d32; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #43a047; box-shadow: 0 0 0 4px rgba(67,160,71,.13); }
     
     .table-card { border-radius: 12px; padding: 0; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
     .search-header { padding: 16px 24px 0 24px; }
@@ -202,10 +201,11 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     }
   `]
 })
-export class ViewDataPage implements OnInit {
+export class ViewDataPage implements OnInit, AfterViewInit, OnDestroy {
   displayedColumns: string[] = ['name', 'student_id', 'is_oku', 'car_plate', 'car_model', 'car_colour', 'email', 'actions'];
   dataSource: MatTableDataSource<AppUser>;
   isLoading = true;
+  private usersSubscription?: Subscription;
 
   @ViewChild(MatPaginator) paginator!: MatPaginator;
   @ViewChild(MatSort) sort!: MatSort;
@@ -215,23 +215,25 @@ export class ViewDataPage implements OnInit {
   }
 
   ngOnInit() {
-    this.loadUsers();
+    this.usersSubscription = this.userManagement.listenToUsers().subscribe({
+      next: users => {
+        this.dataSource.data = users;
+        this.isLoading = false;
+      },
+      error: error => {
+        console.error('Live users listener failed:', error);
+        this.isLoading = false;
+      }
+    });
   }
 
-  async loadUsers() {
-    this.isLoading = true;
-    try {
-      const users = await this.userManagement.getAllUsers();
-      this.dataSource.data = users;
-      setTimeout(() => {
-        this.dataSource.paginator = this.paginator;
-        this.dataSource.sort = this.sort;
-      });
-    } catch(err) {
-      console.error(err);
-    } finally {
-      this.isLoading = false;
-    }
+  ngAfterViewInit() {
+    this.dataSource.paginator = this.paginator;
+    this.dataSource.sort = this.sort;
+  }
+
+  ngOnDestroy() {
+    this.usersSubscription?.unsubscribe();
   }
 
   applyFilter(event: Event) {

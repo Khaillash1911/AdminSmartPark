@@ -52,6 +52,18 @@ export interface ParkingHistoryRecord {
   exits: number;
 }
 
+export interface SimulationTrafficRecord {
+  date: string;
+  entries: number;
+  exits: number;
+}
+
+export interface SimulationTrafficResponse {
+  source: ParkingDataSource;
+  period: 'week' | 'month';
+  records: SimulationTrafficRecord[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ParkingOccupancyService {
   private readonly baseUrl = '/api/parking';
@@ -71,6 +83,12 @@ export class ParkingOccupancyService {
         return of(null);
       })
     );
+  }
+
+  getTraffic(period: 'week' | 'month'): Observable<SimulationTrafficResponse> {
+    return this.http.get<SimulationTrafficResponse>(`${this.baseUrl}/traffic`, {
+      params: { period }
+    });
   }
 
   forceUpdate(): Observable<{ success: boolean; message: string; data: ParkingOccupancyResponse }> {

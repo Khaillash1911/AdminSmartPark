@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 import random
-import sqlite3
 import threading
-from contextlib import closing
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from config import DATABASE_PATH, SIMULATION_SOURCE, TIMEZONE
-from simulator.parking_config import PARKING_ROWS, SECTION_BEHAVIOUR, ParkingRowConfig
+from backend.config import SIMULATION_SOURCE, TIMEZONE
+from backend.firestore_client import get_firestore_client
+from backend.simulator.firestore_store import FirestoreParkingStore
+from backend.simulator.parking_config import PARKING_ROWS, SECTION_BEHAVIOUR, ParkingRowConfig
 
 
 class ParkingOccupancySimulator:
-    def __init__(self, database_path: Path = DATABASE_PATH, source: str = SIMULATION_SOURCE):
-        self.database_path = database_path
+    def __init__(self, store: Any | None = None, source: str = SIMULATION_SOURCE):
+        self.store = store or FirestoreParkingStore(get_firestore_client())
         self.source = source
         self.timezone = ZoneInfo(TIMEZONE)
         self._lock = threading.RLock()
@@ -25,9 +24,8 @@ class ParkingOccupancySimulator:
         self._stop_event = threading.Event()
         self._scheduler_started = False
 
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
-        self.reset(save_history=True)
+        if not self._load_current_state():
+            self.reset(save_history=True)
 
     def start_scheduler(self, interval_seconds: int) -> None:
         if self._scheduler_started:
@@ -72,6 +70,7 @@ class ParkingOccupancySimulator:
 
     def update(self) -> dict[str, Any]:
         with self._lock:
+            self._load_current_state()
             now = self._now()
             updated_rows: dict[tuple[str, str], dict[str, Any]] = {}
             last_entries: dict[tuple[str, str], tuple[int, int]] = {}
@@ -94,6 +93,7 @@ class ParkingOccupancySimulator:
 
     def get_occupancy(self) -> dict[str, Any]:
         with self._lock:
+            self._load_current_state()
             timestamp = self._now().isoformat(timespec="seconds")
             rows = [dict(row) for row in self._rows.values()]
             return self._build_response(rows, timestamp)
@@ -101,6 +101,7 @@ class ParkingOccupancySimulator:
     def get_section(self, section: str) -> dict[str, Any] | None:
         section = section.upper()
         with self._lock:
+            self._load_current_state()
             rows = [dict(row) for row in self._rows.values() if row["section"] == section]
             if not rows:
                 return None
@@ -108,47 +109,32 @@ class ParkingOccupancySimulator:
 
     def get_row(self, section: str, row: str) -> dict[str, Any] | None:
         with self._lock:
+            self._load_current_state()
             item = self._rows.get((section.upper(), row.upper()))
             return dict(item) if item else None
 
     def get_history(self, section: str | None = None, row: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         limit = min(max(limit, 1), 1000)
-        query = (
-            "SELECT timestamp, section, row, capacity, occupied, available, "
-            "occupancy_percentage, entries, exits FROM occupancy_history"
-        )
-        params: list[Any] = []
-        filters: list[str] = []
+        return self.store.get_history(section=section, row=row, limit=limit)
 
-        if section:
-            filters.append("section = ?")
-            params.append(section.upper())
-        if row:
-            filters.append("row = ?")
-            params.append(row.upper())
-        if filters:
-            query += " WHERE " + " AND ".join(filters)
-        query += " ORDER BY id DESC LIMIT ?"
-        params.append(limit)
+    def get_daily_traffic(self, limit: int = 31) -> list[dict[str, Any]]:
+        """Aggregate persisted simulator movements for analytics/model inference."""
+        limit = min(max(limit, 1), 90)
+        start = self._now() - timedelta(days=limit + 1)
+        return self.store.get_daily_traffic(start=start, limit=limit)
 
-        with closing(sqlite3.connect(self.database_path)) as conn:
-            conn.row_factory = sqlite3.Row
-            records = conn.execute(query, params).fetchall()
+    def get_traffic_summary(self, period: str) -> list[dict[str, Any]]:
+        """Aggregate simulator movements by day for dashboard traffic charts."""
+        now = self._now()
+        if period == "week":
+            start = (now - timedelta(days=6)).date()
+        elif period == "month":
+            start = now.date().replace(day=1)
+        else:
+            raise ValueError("period must be 'week' or 'month'")
 
-        return [
-            {
-                "timestamp": record["timestamp"],
-                "section": record["section"],
-                "row": record["row"],
-                "capacity": record["capacity"],
-                "occupied": record["occupied"],
-                "available": record["available"],
-                "occupancyPercentage": record["occupancy_percentage"],
-                "entries": record["entries"],
-                "exits": record["exits"],
-            }
-            for record in records
-        ]
+        start_datetime = datetime.combine(start, datetime.min.time(), tzinfo=self.timezone)
+        return self.store.get_daily_traffic(start=start_datetime, limit=31)
 
     def _movement_for_row(
         self,
@@ -304,57 +290,31 @@ class ParkingOccupancySimulator:
         return "LOW"
 
     def _save_snapshot(self, timestamp: datetime) -> None:
-        records = []
-        for key, row in self._rows.items():
-            entries, exits = self._last_update_entries.get(key, (0, 0))
-            records.append(
-                (
-                    timestamp.isoformat(timespec="seconds"),
-                    row["section"],
-                    row["row"],
-                    row["capacity"],
-                    row["occupied"],
-                    row["available"],
-                    row["occupancyPercentage"],
-                    entries,
-                    exits,
-                )
-            )
+        self.store.save_snapshot(
+            timestamp=timestamp,
+            rows=[dict(row) for row in self._rows.values()],
+            movements=self._last_update_entries,
+            source=self.source,
+        )
 
-        with closing(sqlite3.connect(self.database_path)) as conn:
-            conn.executemany(
-                """
-                INSERT INTO occupancy_history (
-                    timestamp, section, row, capacity, occupied, available,
-                    occupancy_percentage, entries, exits
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                records,
-            )
-            conn.commit()
-
-    def _init_db(self) -> None:
-        with closing(sqlite3.connect(self.database_path)) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS occupancy_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    section TEXT NOT NULL,
-                    row TEXT NOT NULL,
-                    capacity INTEGER NOT NULL,
-                    occupied INTEGER NOT NULL,
-                    available INTEGER NOT NULL,
-                    occupancy_percentage REAL NOT NULL,
-                    entries INTEGER NOT NULL,
-                    exits INTEGER NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_occupancy_history_section_row ON occupancy_history(section, row, id)"
-            )
-            conn.commit()
+    def _load_current_state(self) -> bool:
+        current = self.store.load_current()
+        if not current or not current.get("rows"):
+            return False
+        self._rows = {
+            (item["section"], item["row"]): {
+                key: value
+                for key, value in item.items()
+                if key not in {"entries", "exits"}
+            }
+            for item in current["rows"]
+        }
+        self._last_update_entries = {
+            (item["section"], item["row"]):
+            (int(item.get("entries", 0)), int(item.get("exits", 0)))
+            for item in current["rows"]
+        }
+        return True
 
     def _now(self) -> datetime:
         return datetime.now(self.timezone)

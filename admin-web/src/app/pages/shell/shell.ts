@@ -69,7 +69,7 @@ import { Observable } from 'rxjs';
 
             <a mat-list-item routerLink="/admin/notifications" routerLinkActive="active-link">
               <mat-icon matListItemIcon [matBadge]="unresolvedCount$ | async" matBadgeColor="warn" [matBadgeHidden]="(unresolvedCount$ | async) === 0">notifications</mat-icon>
-              <div matListItemTitle>Notifications</div>
+              <div matListItemTitle>Violations</div>
             </a>
             
             <a mat-list-item routerLink="/admin/settings" routerLinkActive="active-link">

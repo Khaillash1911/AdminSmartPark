@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
-import { Firestore, collection, getDocs, doc, updateDoc } from '@angular/fire/firestore';
+import { Firestore, collection, getDocs, doc, updateDoc, onSnapshot } from '@angular/fire/firestore';
+import { Observable } from 'rxjs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -25,6 +26,22 @@ export class UserManagementService {
     return snap.docs
       .map(d => ({ uid: d.id, ...d.data() } as AppUser))
       .sort((a, b) => this.createdAtMillis(b.created_at) - this.createdAtMillis(a.created_at));
+  }
+
+  listenToUsers(): Observable<AppUser[]> {
+    return new Observable(observer => {
+      const unsubscribe = onSnapshot(
+        collection(this.firestore, 'users'),
+        snapshot => {
+          const users = snapshot.docs
+            .map(document => ({ uid: document.id, ...document.data() } as AppUser))
+            .sort((a, b) => this.createdAtMillis(b.created_at) - this.createdAtMillis(a.created_at));
+          observer.next(users);
+        },
+        error => observer.error(error)
+      );
+      return () => unsubscribe();
+    });
   }
 
   private createdAtMillis(value: any): number {

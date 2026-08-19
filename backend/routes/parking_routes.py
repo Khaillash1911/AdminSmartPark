@@ -1,4 +1,9 @@
+from datetime import datetime
+
 from flask import Blueprint, current_app, jsonify, request
+
+from backend.config import TIMEZONE
+from zoneinfo import ZoneInfo
 
 
 parking_bp = Blueprint("parking", __name__, url_prefix="/api/parking")
@@ -52,3 +57,30 @@ def get_history():
     )
     simulator = current_app.config["PARKING_SIMULATOR"]
     return jsonify({"source": simulator.source, "count": len(records), "records": records})
+
+
+@parking_bp.get("/traffic")
+def get_traffic():
+    period = request.args.get("period", "week")
+    if period not in {"week", "month"}:
+        return jsonify({"error": "period must be 'week' or 'month'"}), 400
+    simulator = current_app.config["PARKING_SIMULATOR"]
+    records = simulator.get_traffic_summary(period)
+    return jsonify({"source": simulator.source, "period": period, "records": records})
+
+
+@parking_bp.post("/analytics/predict")
+def predict_traffic():
+    payload = request.get_json(silent=True) or {}
+    daily_traffic = payload.get("dailyTraffic")
+    if not daily_traffic:
+        daily_traffic = current_app.config["PARKING_SIMULATOR"].get_daily_traffic()
+    if not isinstance(daily_traffic, list):
+        return jsonify({"error": "dailyTraffic must be an array"}), 400
+
+    try:
+        predictor = current_app.config["PARKING_ANALYTICS_PREDICTOR"]
+        prediction = predictor.predict(daily_traffic, datetime.now(ZoneInfo(TIMEZONE)))
+    except (OSError, ValueError) as error:
+        return jsonify({"error": str(error)}), 422
+    return jsonify(prediction)

@@ -6,6 +6,7 @@ import { initializeApp, provideFirebaseApp } from '@angular/fire/app';
 import { getFirestore, provideFirestore } from '@angular/fire/firestore';
 import { getAuth, provideAuth } from '@angular/fire/auth';
 import { LucideAngularModule, LayoutDashboard, Users, Bell, Settings, LogOut, TrendingUp, Car, MapPin, AlertTriangle, DollarSign, FileText, ChevronDown, Search, Filter, Download, Eye, Flag, X, Check, RefreshCw, Shield, UserPlus, Trash2, Edit, BarChart2, PieChart, Activity, Clock, Calendar } from 'lucide-angular';
+import { provideCharts, withDefaultRegisterables } from 'ng2-charts';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCMtCx40TKngsmqLarmcU9ALpeJcT6AUNU",
@@ -24,6 +25,7 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes),
     provideAnimationsAsync(),
     provideHttpClient(),
+    provideCharts(withDefaultRegisterables()),
     provideFirebaseApp(() => initializeApp(firebaseConfig)),
     provideFirestore(() => getFirestore()),
     provideAuth(() => getAuth()),

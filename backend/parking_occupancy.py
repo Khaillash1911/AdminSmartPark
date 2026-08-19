@@ -1,17 +1,21 @@
+import os
+
 from flask import Flask, jsonify
 from flask_cors import CORS
 
-from config import HOST, PORT, UPDATE_INTERVAL_SECONDS
-from routes.parking_routes import parking_bp
-from simulator.occupancy_simulator import ParkingOccupancySimulator
+from backend.config import HOST, PORT, UPDATE_INTERVAL_SECONDS
+from backend.analytics_model import ParkingAnalyticsPredictor
+from backend.routes.parking_routes import parking_bp
+from backend.simulator.occupancy_simulator import ParkingOccupancySimulator
 
 
-def create_app(start_scheduler: bool = True) -> Flask:
+def create_app(start_scheduler: bool = True, simulator=None) -> Flask:
     app = Flask(__name__)
     CORS(app)
 
-    simulator = ParkingOccupancySimulator()
+    simulator = simulator or ParkingOccupancySimulator()
     app.config["PARKING_SIMULATOR"] = simulator
+    app.config["PARKING_ANALYTICS_PREDICTOR"] = ParkingAnalyticsPredictor()
     app.config["PARKING_SIM_UPDATE_INTERVAL_SECONDS"] = UPDATE_INTERVAL_SECONDS
     app.register_blueprint(parking_bp)
 
@@ -25,7 +29,7 @@ def create_app(start_scheduler: bool = True) -> Flask:
     return app
 
 
-app = create_app(start_scheduler=False)
+app = None if os.getenv("PARKING_SKIP_DEFAULT_APP") == "1" else create_app(start_scheduler=False)
 
 
 if __name__ == "__main__":
