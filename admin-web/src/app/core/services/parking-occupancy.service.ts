@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of, timer } from 'rxjs';
 import { catchError, shareReplay, switchMap } from 'rxjs/operators';
+import { environment } from '../../../environments/environment';
 
 export type ParkingOccupancyStatus = 'LOW' | 'MEDIUM' | 'HIGH';
 export type ParkingDataSource = 'SIMULATION' | 'LIVE_CAMERA';
@@ -66,7 +67,7 @@ export interface SimulationTrafficResponse {
 
 @Injectable({ providedIn: 'root' })
 export class ParkingOccupancyService {
-  private readonly baseUrl = '/api/parking';
+  private readonly baseUrl = environment.parkingApiUrl;
   private readonly pollMs = 60000;
 
   readonly occupancy$: Observable<ParkingOccupancyResponse | null> = timer(0, this.pollMs).pipe(

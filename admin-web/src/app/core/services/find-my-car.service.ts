@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { AiRuntimeConfigService } from './ai-runtime-config.service';
 
 export interface CarResult {
   uid: string;
@@ -102,31 +103,29 @@ export interface ConfirmCarDetails {
   providedIn: 'root'
 })
 export class FindMyCarService {
-  private baseUrl = 'http://127.0.0.1:5002';
-
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, private aiRuntime: AiRuntimeConfigService) {}
 
   checkApiStatus(): Observable<FindMyCarHealthResponse> {
-    return this.http.get<FindMyCarHealthResponse>(this.baseUrl);
+    return this.http.get<FindMyCarHealthResponse>(this.aiRuntime.anprUrl());
   }
 
   findCarByPlate(plateNumber: string): Observable<FindCarResponse> {
     const cleanedPlate = plateNumber.replace(/\s+/g, '').toUpperCase();
-    return this.http.get<FindCarResponse>(`${this.baseUrl}/find-car/${cleanedPlate}`);
+    return this.http.get<FindCarResponse>(this.aiRuntime.anprUrl(`find-car/${cleanedPlate}`));
   }
 
   getSamplePlates(): Observable<SamplePlatesResponse> {
-    return this.http.get<SamplePlatesResponse>(`${this.baseUrl}/sample-plates`);
+    return this.http.get<SamplePlatesResponse>(this.aiRuntime.anprUrl('sample-plates'));
   }
 
   detectPlate(file: File): Observable<PlateDetectionResponse> {
     const formData = new FormData();
     formData.append('file', file);
-    return this.http.post<PlateDetectionResponse>(`${this.baseUrl}/detect-plate`, formData);
+    return this.http.post<PlateDetectionResponse>(this.aiRuntime.anprUrl('detect-plate'), formData);
   }
 
   confirmCar(confirmationToken: string, plateNumber: string, details: ConfirmCarDetails): Observable<{ success: boolean; message: string }> {
-    return this.http.post<{ success: boolean; message: string }>(`${this.baseUrl}/confirm-car`, {
+    return this.http.post<{ success: boolean; message: string }>(this.aiRuntime.anprUrl('confirm-car'), {
       confirmation_token: confirmationToken,
       plate_number: plateNumber,
       ...details
@@ -136,7 +135,7 @@ export class FindMyCarService {
   findRegisteredUser(plateNumber: string): Observable<{ success: boolean; found: boolean; user: RegisteredCarUser | null }> {
     const plate = plateNumber.replace(/[^a-z0-9]/gi, '').toUpperCase();
     return this.http.get<{ success: boolean; found: boolean; user: RegisteredCarUser | null }>(
-      `${this.baseUrl}/registered-user/${plate}`
+      this.aiRuntime.anprUrl(`registered-user/${plate}`)
     );
   }
 }

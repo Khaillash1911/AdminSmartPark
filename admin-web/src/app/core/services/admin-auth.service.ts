@@ -41,6 +41,19 @@ export class AdminAuthService {
     return signOut(this.auth);
   }
 
+  async authorizedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    const currentUser = this.auth.currentUser;
+    if (!currentUser) throw new Error('Administrator session is not available.');
+    const token = await currentUser.getIdToken();
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    return fetch(input, {
+      ...init,
+      headers,
+      signal: init.signal ?? AbortSignal.timeout(180_000)
+    });
+  }
+
   getAdminName(): Observable<string | null> {
     return this.adminUser$.pipe(map(user => user ? user.name : null));
   }

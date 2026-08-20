@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "experimentalServices": {
+    "web": { "entrypoint": "admin-web", "routePrefix": "/" },
+    "parking": {
+      "entrypoint": "services/parking/main.py",
+      "routePrefix": "/api/parking",
+      "maxDuration": 60,
+      "includeFiles": "research/parking-analytics/**"
+    }
+  }
+}

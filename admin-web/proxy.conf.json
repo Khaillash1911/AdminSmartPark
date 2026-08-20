@@ -11,5 +11,12 @@
     "secure": false,
     "changeOrigin": true,
     "logLevel": "warn"
+  },
+  "/anpr-api": {
+    "target": "http://127.0.0.1:5002",
+    "secure": false,
+    "pathRewrite": { "^/anpr-api": "" },
+    "changeOrigin": true,
+    "logLevel": "warn"
   }
 }

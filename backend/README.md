@@ -1,6 +1,6 @@
 # Backend services
 
-The application uses three independently started Flask services.
+The application keeps three separate Flask services. They can be started together locally and imported as independent request-driven Vercel Functions.
 
 | Service | Entry point | Port | Purpose |
 | --- | --- | --- | --- |
@@ -14,6 +14,6 @@ Runtime data is not source code:
 
 - current simulated occupancy is stored in Firestore `parking_simulation/current`;
 - simulator snapshots and traffic movements are stored in Firestore `parking_occupancy_history`;
-- Find My Car temporary images are recreated under its local upload/static directories;
+- Find My Car uses request-local files and stores pending confirmation metadata in Firestore;
 - permanent shared images are stored in Cloudinary;
 - application records and violations are stored in Firebase.

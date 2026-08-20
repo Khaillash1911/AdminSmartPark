@@ -20,36 +20,8 @@ class ParkingOccupancySimulator:
         self._lock = threading.RLock()
         self._rows: dict[tuple[str, str], dict[str, Any]] = {}
         self._last_update_entries: dict[tuple[str, str], tuple[int, int]] = {}
-        self._scheduler_thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
-        self._scheduler_started = False
-
         if not self._load_current_state():
             self.reset(save_history=True)
-
-    def start_scheduler(self, interval_seconds: int) -> None:
-        if self._scheduler_started:
-            return
-
-        self._scheduler_started = True
-        self._stop_event.clear()
-        self._scheduler_thread = threading.Thread(
-            target=self._run_scheduler,
-            args=(interval_seconds,),
-            name="parking-occupancy-simulator",
-            daemon=True,
-        )
-        self._scheduler_thread.start()
-
-    def stop_scheduler(self) -> None:
-        self._stop_event.set()
-        if self._scheduler_thread and self._scheduler_thread.is_alive():
-            self._scheduler_thread.join(timeout=2)
-        self._scheduler_started = False
-
-    def _run_scheduler(self, interval_seconds: int) -> None:
-        while not self._stop_event.wait(interval_seconds):
-            self.update()
 
     def reset(self, save_history: bool = True) -> dict[str, Any]:
         with self._lock:
@@ -90,6 +62,11 @@ class ParkingOccupancySimulator:
             self._last_update_entries = last_entries
             self._save_snapshot(now)
             return self.get_occupancy()
+
+    def simulate_if_due(self, minimum_interval_seconds: int = 55) -> tuple[bool, dict[str, Any]]:
+        if not self.store.try_acquire_simulation(minimum_interval_seconds):
+            return False, self.get_occupancy()
+        return True, self.update()
 
     def get_occupancy(self) -> dict[str, Any]:
         with self._lock:

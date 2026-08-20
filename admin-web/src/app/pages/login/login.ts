@@ -9,6 +9,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { AdminSessionService } from '../../core/services/admin-session.service';
+import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.service';
 
 @Component({
   selector: 'app-login',
@@ -182,6 +184,8 @@ export class LoginPage {
   constructor(
     private fb: FormBuilder,
     private authService: AdminAuthService,
+    private adminSession: AdminSessionService,
+    private aiRuntime: AiRuntimeConfigService,
     private router: Router
   ) {
     this.loginForm = this.fb.group({
@@ -200,6 +204,8 @@ export class LoginPage {
 
     try {
       await this.authService.adminLogin(email, password);
+      await this.adminSession.initialize();
+      await this.aiRuntime.initialize();
       this.router.navigate(['/admin/dashboard']);
     } catch (error: any) {
       if (error.message.includes('NOT_AN_ADMIN')) {

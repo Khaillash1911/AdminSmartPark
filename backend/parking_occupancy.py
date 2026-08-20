@@ -1,39 +1,35 @@
 import os
 
 from flask import Flask, jsonify
-from flask_cors import CORS
 
-from backend.config import HOST, PORT, UPDATE_INTERVAL_SECONDS
+from backend.config import HOST, PORT
 from backend.analytics_model import ParkingAnalyticsPredictor
 from backend.routes.parking_routes import parking_bp
+from backend.security import configure_cors
 from backend.simulator.occupancy_simulator import ParkingOccupancySimulator
 
 
-def create_app(start_scheduler: bool = True, simulator=None) -> Flask:
+def create_app(simulator=None) -> Flask:
     app = Flask(__name__)
-    CORS(app)
+    configure_cors(app)
 
     simulator = simulator or ParkingOccupancySimulator()
     app.config["PARKING_SIMULATOR"] = simulator
     app.config["PARKING_ANALYTICS_PREDICTOR"] = ParkingAnalyticsPredictor()
-    app.config["PARKING_SIM_UPDATE_INTERVAL_SECONDS"] = UPDATE_INTERVAL_SECONDS
     app.register_blueprint(parking_bp)
 
     @app.get("/health")
     def health():
         return jsonify({"status": "ok", "source": "SIMULATION"})
 
-    if start_scheduler:
-        simulator.start_scheduler(UPDATE_INTERVAL_SECONDS)
-
     return app
 
 
-app = None if os.getenv("PARKING_SKIP_DEFAULT_APP") == "1" else create_app(start_scheduler=False)
+app = None if os.getenv("PARKING_SKIP_DEFAULT_APP") == "1" else create_app()
 
 
 if __name__ == "__main__":
-    app = create_app(start_scheduler=True)
+    app = create_app()
     print(f"Parking occupancy simulator running on http://localhost:{PORT}")
-    print(f"Update interval: {UPDATE_INTERVAL_SECONDS} seconds")
+    print("Simulation cycles are triggered by authenticated /api/parking/simulate requests")
     app.run(host=HOST, port=PORT, debug=False, use_reloader=False, threaded=True)

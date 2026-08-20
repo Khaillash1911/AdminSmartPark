@@ -1,0 +1,10 @@
+.git
+.venv
+**/node_modules
+**/__pycache__
+**/.env
+**/serviceAccountKey.json
+admin-web/dist
+admin-web/.angular
+find_my_car_system/backend/uploads
+find_my_car_system/backend/static

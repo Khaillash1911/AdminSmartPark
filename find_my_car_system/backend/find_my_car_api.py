@@ -1,7 +1,6 @@
 from flask import Flask, jsonify, request
-from flask_cors import CORS
-# pyrefly: ignore [missing-import]
-from firebase_config import db
+import sys
+import tempfile
 from ultralytics import YOLO
 # pyrefly: ignore [missing-import]
 import cv2
@@ -24,9 +23,26 @@ import cloudinary
 import cloudinary.uploader
 
 app = Flask(__name__)
-CORS(app)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = Path(BASE_DIR).parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.firestore_client import get_firestore_client
+from backend.security import authenticate_admin_request, configure_cors
+
+db = get_firestore_client()
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
+configure_cors(app)
+
+
+@app.before_request
+def require_admin():
+    if request.path == "/":
+        return None
+    return authenticate_admin_request()
+
 load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
 
 
@@ -47,10 +63,11 @@ def configure_cloudinary():
 
 CLOUDINARY_CONFIGURED = configure_cloudinary()
 
-UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
-OUTPUT_FOLDER = os.path.join(BASE_DIR, "static/results")
-PLATE_FOLDER = os.path.join(BASE_DIR, "static/plate_crops")
-CAR_IMAGE_FOLDER = os.path.join(BASE_DIR, "static/car_images")
+RUNTIME_DIR = os.path.join(tempfile.gettempdir(), "smartpark-anpr") if os.getenv("VERCEL") else BASE_DIR
+UPLOAD_FOLDER = os.path.join(RUNTIME_DIR, "uploads")
+OUTPUT_FOLDER = os.path.join(RUNTIME_DIR, "static/results")
+PLATE_FOLDER = os.path.join(RUNTIME_DIR, "static/plate_crops")
+CAR_IMAGE_FOLDER = os.path.join(RUNTIME_DIR, "static/car_images")
 MODEL_PATH = os.path.join(BASE_DIR, "models/best.pt")
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -65,11 +82,22 @@ os.makedirs(CAR_IMAGE_FOLDER, exist_ok=True)
 # created after the administrator confirms the OCR preview.
 pending_detections = {}
 
-# Load YOLOv8 number plate model
-model = YOLO(MODEL_PATH)
+model = None
+reader = None
 
-# Load OCR reader
-reader = easyocr.Reader(["en"], gpu=False)
+
+def get_model():
+    global model
+    if model is None:
+        model = YOLO(MODEL_PATH)
+    return model
+
+
+def get_reader():
+    global reader
+    if reader is None:
+        reader = easyocr.Reader(["en"], gpu=False)
+    return reader
 
 
 def clean_plate_text(text):
@@ -123,7 +151,7 @@ def read_plate_multi_pass(plate_crop):
     for variant in preprocess_plate(gray):
         for decoder in ("beamsearch", "greedy"):
             try:
-                ocr_results = reader.readtext(
+                ocr_results = get_reader().readtext(
                     variant,
                     detail=1,
                     paragraph=False,
@@ -238,7 +266,7 @@ def upload_confirmed_images(pending, plate_number, token, image_hash):
     uploaded_ids = []
     try:
         car_upload = cloudinary.uploader.upload(
-            pending["image_path"],
+            pending.get("image_url") or pending["image_path"],
             public_id=car_public_id,
             resource_type="image",
             overwrite=False
@@ -246,9 +274,10 @@ def upload_confirmed_images(pending, plate_number, token, image_hash):
         uploaded_ids.append(car_public_id)
 
         plate_url = None
-        if pending.get("plate_crop_path"):
+        plate_source = pending.get("plate_image_url") or pending.get("plate_crop_path")
+        if plate_source:
             plate_upload = cloudinary.uploader.upload(
-                pending["plate_crop_path"],
+                plate_source,
                 public_id=plate_public_id,
                 resource_type="image",
                 overwrite=False
@@ -261,6 +290,55 @@ def upload_confirmed_images(pending, plate_number, token, image_hash):
         for public_id in uploaded_ids:
             cloudinary.uploader.destroy(public_id, resource_type="image", invalidate=True)
         raise
+
+
+def persist_pending_detection(token, pending, output_path, image_hash):
+    if not CLOUDINARY_CONFIGURED:
+        raise RuntimeError("Cloudinary is not configured")
+    prefix = f"smartpark/pending/{token}"
+    uploads = [
+        cloudinary.uploader.upload(pending["image_path"], public_id=f"{prefix}/original", overwrite=True),
+        cloudinary.uploader.upload(output_path, public_id=f"{prefix}/result", overwrite=True),
+    ]
+    plate_upload = None
+    if pending.get("plate_crop_path"):
+        plate_upload = cloudinary.uploader.upload(
+            pending["plate_crop_path"], public_id=f"{prefix}/plate", overwrite=True
+        )
+        uploads.append(plate_upload)
+
+    stored = {
+        **pending,
+        "image_url": uploads[0]["secure_url"],
+        "result_image_url": uploads[1]["secure_url"],
+        "plate_image_url": plate_upload["secure_url"] if plate_upload else None,
+        "image_hash": image_hash,
+        "temporary_cloudinary_ids": [item["public_id"] for item in uploads],
+    }
+    # Local paths are useful within one local process but must not be relied on
+    # by a later serverless invocation.
+    firestore_record = {key: value for key, value in stored.items() if not key.endswith("_path")}
+    db.collection("pending_car_detections").document(token).set(firestore_record)
+    return stored
+
+
+def load_pending_detection(token):
+    pending = pending_detections.get(token)
+    if pending is not None:
+        return pending
+    snapshot = db.collection("pending_car_detections").document(token).get()
+    return snapshot.to_dict() if snapshot.exists else None
+
+
+def cleanup_pending_detection(token, pending):
+    for public_id in pending.get("temporary_cloudinary_ids", []):
+        cloudinary.uploader.destroy(public_id, resource_type="image", invalidate=True)
+    db.collection("pending_car_detections").document(token).delete()
+    pending_detections.pop(token, None)
+    for key in ("image_path", "plate_crop_path", "result_path"):
+        path = pending.get(key)
+        if path and os.path.exists(path):
+            os.remove(path)
 
 
 @app.route("/", methods=["GET"])
@@ -286,6 +364,12 @@ def detect_plate():
             "message": "No selected file"
         }), 400
 
+    if file.mimetype not in {"image/jpeg", "image/png", "image/webp"}:
+        return jsonify({
+            "success": False,
+            "message": "Only JPEG, PNG, or WebP images are allowed"
+        }), 415
+
     original_filename = secure_filename(file.filename)
     suffix = Path(original_filename).suffix.lower() or ".jpg"
     token = uuid4().hex
@@ -303,7 +387,7 @@ def detect_plate():
 
     # A lower detector threshold plus a padded crop prevents plate edges from
     # being lost before OCR, while OCR scoring filters weak text candidates.
-    results = model(image, conf=0.2, imgsz=1280, verbose=False)
+    results = get_model()(image, conf=0.2, imgsz=1280, verbose=False)
 
     detections = []
     best_crop_filename = None
@@ -377,14 +461,24 @@ def detect_plate():
     best_detection = max(detections, key=lambda item: item["ocr_confidence"], default=None)
     matched_user = find_registered_user(best_detection["plate_number"]) if best_detection else None
     parking_location = generate_parking_location()
-    pending_detections[token] = {
+    pending = {
         "image_path": image_path,
         "original_filename": original_filename,
         "plate_crop_path": os.path.join(PLATE_FOLDER, best_crop_filename) if best_crop_filename else None,
         "detection": best_detection,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "parking_location": parking_location
+        "parking_location": parking_location,
+        "result_path": output_path,
     }
+    try:
+        image_hash = image_sha256(image_path)
+        pending = persist_pending_detection(token, pending, output_path, image_hash)
+        pending_detections[token] = pending
+    except Exception as exc:
+        return jsonify({"success": False, "message": f"Could not persist detection preview: {exc}"}), 503
+
+    for item in detections:
+        item["plate_image_url"] = pending.get("plate_image_url")
 
     return jsonify({
         "success": True,
@@ -395,8 +489,8 @@ def detect_plate():
         "best_detection": best_detection,
         "matched_user": matched_user,
         "parking_location": parking_location,
-        "uploaded_image_url": f"http://127.0.0.1:5002/uploads/{filename}",
-        "result_image": f"http://127.0.0.1:5002/static/results/{output_filename}"
+        "uploaded_image_url": pending["image_url"],
+        "result_image": pending["result_image_url"]
     })
 
 
@@ -416,7 +510,7 @@ def registered_user(plate_number):
 def confirm_car():
     payload = request.get_json(silent=True) or {}
     token = payload.get("confirmation_token", "")
-    pending = pending_detections.get(token)
+    pending = load_pending_detection(token)
     if pending is None:
         return jsonify({"success": False, "message": "Detection expired or was not found"}), 404
 
@@ -443,9 +537,12 @@ def confirm_car():
             "message": f"Missing required car data: {', '.join(missing_fields)}"
         }), 400
 
-    image_hash = image_sha256(pending["image_path"])
+    image_hash = pending.get("image_hash")
+    if not image_hash:
+        return jsonify({"success": False, "message": "Detection image metadata is incomplete"}), 409
     duplicate = find_duplicate_image(image_hash)
     if duplicate:
+        cleanup_pending_detection(token, pending)
         return jsonify({
             "success": False,
             "duplicate": True,
@@ -510,10 +607,7 @@ def confirm_car():
             cloudinary.uploader.destroy(public_id, resource_type="image", invalidate=True)
         raise
 
-    os.remove(pending["image_path"])
-    if pending.get("plate_crop_path") and os.path.exists(pending["plate_crop_path"]):
-        os.remove(pending["plate_crop_path"])
-    pending_detections.pop(token, None)
+    cleanup_pending_detection(token, pending)
 
     return jsonify({
         "success": True,
@@ -600,4 +694,4 @@ def sample_plates():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    app.run(host="127.0.0.1", port=5002, debug=False, use_reloader=False, threaded=True)

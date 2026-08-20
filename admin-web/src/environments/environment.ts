@@ -1,5 +1,6 @@
 export const environment = {
   production: false,
+  parkingApiUrl: '/api/parking',
   firebaseConfig: {
     apiKey: "AIzaSyCMtCx40TKngsmqLarmcU9ALpeJcT6AUNU",
     authDomain: "smartpark-ai-web.firebaseapp.com",

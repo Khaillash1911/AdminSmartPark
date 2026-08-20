@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -22,6 +22,27 @@ class FirestoreParkingStore:
             .get()
         )
         return snapshot.to_dict() if snapshot.exists else None
+
+    def try_acquire_simulation(self, minimum_interval_seconds: int = 55) -> bool:
+        from google.cloud import firestore
+
+        reference = self.client.collection(self.CURRENT_COLLECTION).document("control")
+        transaction = self.client.transaction()
+
+        @firestore.transactional
+        def claim(current_transaction):
+            snapshot = reference.get(transaction=current_transaction)
+            last_run = (snapshot.to_dict() or {}).get("lastSimulationAt") if snapshot.exists else None
+            now = datetime.now(timezone.utc)
+            if last_run is not None:
+                if last_run.tzinfo is None:
+                    last_run = last_run.replace(tzinfo=timezone.utc)
+                if (now - last_run).total_seconds() < minimum_interval_seconds:
+                    return False
+            current_transaction.set(reference, {"lastSimulationAt": now}, merge=True)
+            return True
+
+        return bool(claim(transaction))
 
     def save_snapshot(
         self,

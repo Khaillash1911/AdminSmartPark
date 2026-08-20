@@ -7,6 +7,8 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { Firestore, collection, getDocs } from '@angular/fire/firestore';
+import { AdminAuthService } from '../../core/services/admin-auth.service';
+import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.service';
 
 const IMG6_URL = 'https://res.cloudinary.com/lftlvmu7/image/upload/smartpark/parking_sources/img6.jpg';
 const EXCLUDED_TEST_MAPS = new Set(['twospaces']);
@@ -538,7 +540,9 @@ export class TestDetectionDialogComponent {
     private dialogRef: MatDialogRef<TestDetectionDialogComponent>,
     private cdr: ChangeDetectorRef,
     private firestore: Firestore,
-    private snackBar: MatSnackBar
+    private snackBar: MatSnackBar,
+    private authService: AdminAuthService,
+    private aiRuntime: AiRuntimeConfigService
   ) {
     this.loadParkingMaps();
   }
@@ -574,7 +578,7 @@ export class TestDetectionDialogComponent {
     try {
       await this.loadParkingMaps(this.selectedMap.name);
       if (!this.selectedMap) throw new Error('Selected parking map no longer exists.');
-      const response = await fetch('/detector-api/detect-map', {
+      const response = await this.authService.authorizedFetch(this.aiRuntime.detectorUrl('detect-map'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -619,7 +623,7 @@ export class TestDetectionDialogComponent {
     this.okuResult = null;
     this.errorMessage = '';
     try {
-      const response = await fetch('/detector-api/detect-oku-violation', {
+      const response = await this.authService.authorizedFetch(this.aiRuntime.detectorUrl('detect-oku-violation'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image_url: this.selectedMap.image_url, name: this.selectedMap.name })

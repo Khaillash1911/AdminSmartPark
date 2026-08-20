@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from flask import Flask, jsonify, request
-from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -19,6 +18,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.plate_recognition import clean_plate_text, recognize_best_plate
+from backend.firestore_client import get_firestore_client
+from backend.security import authenticate_admin_request, configure_cors
 
 BASE_DIR        = Path(__file__).parent
 ROOT_DIR        = BASE_DIR.parent
@@ -27,7 +28,15 @@ CAR_SEGMENTATION_MODEL = BASE_DIR / "yolov8m-seg.pt"
 FIREBASE_KEY    = ROOT_DIR / "find_my_car_system" / "backend" / "serviceAccountKey.json"
 
 app = Flask(__name__)
-CORS(app)
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
+configure_cors(app)
+
+
+@app.before_request
+def require_admin():
+    if request.path == "/health":
+        return None
+    return authenticate_admin_request()
 
 
 DOUBLE_PARK_CAR_COVERAGE_THRESHOLD = 0.25
@@ -82,18 +91,8 @@ def _clean_plate_text(text: str) -> str:
 
 
 def _init_firestore():
-    if not FIREBASE_KEY.exists():
-        print(f"[WARN] Firebase service account not found: {FIREBASE_KEY}", flush=True)
-        return None
-
     try:
-        import firebase_admin
-        from firebase_admin import credentials, firestore
-
-        if not firebase_admin._apps:
-            cred = credentials.Certificate(str(FIREBASE_KEY))
-            firebase_admin.initialize_app(cred)
-        return firestore.client()
+        return get_firestore_client()
     except Exception as exc:
         print(f"[WARN] Firebase disabled for detector notifications: {exc}", flush=True)
         return None
@@ -353,6 +352,8 @@ def upload_parking_map_image():
         return jsonify({"success": False, "message": "No image selected"}), 400
 
     upload = request.files["file"]
+    if upload.mimetype not in {"image/jpeg", "image/png", "image/webp"}:
+        return jsonify({"success": False, "message": "Only JPEG, PNG, or WebP images are allowed"}), 415
     data = upload.read()
     if len(data) > 20 * 1024 * 1024:
         return jsonify({"success": False, "message": "Image must be smaller than 20 MB"}), 413
@@ -557,4 +558,4 @@ def detect_map():
 
 if __name__ == "__main__":
     print("SmartPark Detector API running on http://localhost:5050")
-    app.run(host="0.0.0.0", port=5050, debug=False, threaded=True)
+    app.run(host="127.0.0.1", port=5050, debug=False, threaded=True)

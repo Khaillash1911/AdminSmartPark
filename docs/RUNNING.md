@@ -1,62 +1,30 @@
-# SmartPark APU — How to Run the Complete System
+# SmartPark APU — Local Development
 
-Run the Node/Angular frontend first, followed by the three Python APIs. Keep all four terminals open while using the system.
+## Prerequisites
 
-## 1. Prerequisites
-
-- Node.js 20 or newer and npm
+- Node.js 20 or newer with npm
 - Python 3.11 or newer
-- Git
+- Firebase Admin service-account JSON for local development
+- Cloudinary credentials
 
-Open a terminal at the project root:
+## One-time installation
 
-```bash
-cd "/path/to/AdminSmartPark"
-```
-
-All commands below assume this project-root location unless stated otherwise.
-
-## 2. One-time installation
-
-Install frontend packages:
+From the repository root:
 
 ```bash
-cd admin-web
-npm install --legacy-peer-deps
-cd ..
-```
-
-Create the Python environment and install packages. If `.venv` already exists, do not recreate it.
-
-```bash
+npm install
+npm --prefix admin-web install --legacy-peer-deps
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
-Windows equivalent:
+Windows uses `.venv\Scripts\pip` for the last command. The launcher automatically chooses `.venv/bin/python`, `.venv\Scripts\python.exe`, or a Python executable on `PATH`.
 
-```powershell
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
-```
+## Local configuration
 
-## 3. Required configuration
+Place the uncommitted Firebase service account at `find_my_car_system/backend/serviceAccountKey.json`.
 
-### Firebase
-
-Place the Firebase Admin service account at:
-
-```text
-find_my_car_system/backend/serviceAccountKey.json
-```
-
-It is required by Find My Car, the detector, and the occupancy simulator. The simulator writes current state to `parking_simulation/current` and history to `parking_occupancy_history`.
-
-For hosted environments, set either `FIREBASE_SERVICE_ACCOUNT_JSON` to the complete service-account JSON or `GOOGLE_APPLICATION_CREDENTIALS` to its mounted path. Application Default Credentials are used when neither local option is present.
-
-### Cloudinary
-
-Copy the provided example and update the new local `.env`:
+Copy the Cloudinary example and fill in the real server-side value:
 
 ```bash
 cp find_my_car_system/backend/.env.example find_my_car_system/backend/.env
@@ -66,143 +34,62 @@ cp find_my_car_system/backend/.env.example find_my_car_system/backend/.env
 CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
 ```
 
-Do not commit or share the real API secret.
+Optional server variables are `ALLOWED_ORIGINS`, `PARKING_DATA_SOURCE`, and `PARKING_SIM_TIMEZONE`.
 
-### AI models
+## Start the complete system
 
-Confirm these files exist:
-
-```text
-detection/yolov8m-seg.pt
-find_my_car_system/backend/models/best.pt
-```
-
-## 4. First: start Node/Angular — Terminal 1
+Stop any older manually started API processes, then run:
 
 ```bash
-cd "/path/to/AdminSmartPark/admin-web"
-npm start -- --port 4300
-
-#Run API-quickly
-./.venv/bin/python -m backend.parking_occupancy
-./.venv/bin/python detection/parking_detector_api.py
-./.venv/bin/python find_my_car_system/backend/find_my_car_api.py
+npm run dev:all
 ```
 
-Wait for Angular to compile, then open [http://localhost:4300](http://localhost:4300).
+| Process | Address |
+| --- | --- |
+| Angular | `http://localhost:4200` |
+| Detector | `http://localhost:5050` |
+| Parking/analytics | `http://localhost:5060` |
+| Find My Car/ANPR | `http://127.0.0.1:5002` |
 
-The frontend proxy forwards detector requests to port `5050` and occupancy requests to port `5060`.
+Press `Ctrl+C` once to stop all children. If one child fails, the manager stops the other three rather than leaving a partial stack running.
 
-## 5. API 1: Parking Occupancy Simulator — Terminal 2
+Individual commands remain available:
 
 ```bash
-cd "/path/to/AdminSmartPark"
-./.venv/bin/python -m backend.parking_occupancy
+npm run api:detector
+npm run api:parking
+npm run api:anpr
+npm --prefix admin-web start
 ```
 
-It runs on `http://localhost:5060`. Verify it with:
+## Runtime behaviour
 
-```bash
-curl http://localhost:5060/health
-curl http://localhost:5060/api/parking/occupancy
-```
+- No simulation runs before an administrator logs in.
+- Successful Firebase login checks `admins/{uid}`, obtains a current ID token, initializes the API session, loads dashboard data, and starts a browser-controlled 60-second simulation cycle.
+- Logout clears that timer; Angular and Firestore subscriptions are destroyed with the authenticated shell.
+- A Firestore transaction skips simulation requests received within 55 seconds of the previous cycle, including another tab.
+- YOLO and EasyOCR remain lazy/on-demand and are not invoked by login.
+- Occupancy, simulation locks, history, notifications, and pending ANPR confirmation metadata persist in Firestore.
+- Uploaded and preview images live in Cloudinary. Production inference uses request-scoped `/tmp` files only.
 
-It updates every 60 seconds. To change the interval:
+Angular attaches a freshly obtained Firebase ID token to protected requests. Each Flask API verifies it and confirms that `admins/{uid}.role` is `staff` or `super_admin`.
 
-```bash
-PARKING_SIM_UPDATE_INTERVAL_SECONDS=30 ./.venv/bin/python -m backend.parking_occupancy
-```
-
-## 6. API 2: Parking Detector — Terminal 3
-
-```bash
-cd "/path/to/AdminSmartPark"
-./.venv/bin/python detection/parking_detector_api.py
-```
-
-It runs on `http://localhost:5050`. Verify it with:
+Public health checks:
 
 ```bash
 curl http://localhost:5050/health
-```
-
-This API handles Cloudinary parking images, YOLO car outlines, multi-car occupancy, the 25% double-parking rule, and Firestore notifications. Restart it after changing Python detector code or model files.
-
-## 7. API 3: Find My Car and OCR — Terminal 4
-
-```bash
-cd "/path/to/AdminSmartPark"
-./.venv/bin/python find_my_car_system/backend/find_my_car_api.py
-```
-
-It runs on `http://127.0.0.1:5002`. Verify it with:
-
-```bash
-curl http://127.0.0.1:5002/
-```
-
-This API handles Find My Car searches, Cloudinary uploads, number-plate detection, OCR, confirmation before saving, and matching vehicle details with `users`. Initial startup can take longer while EasyOCR and YOLO load.
-
-## 8. Required startup order
-
-1. Node/Angular frontend — port `4300`
-2. Parking Occupancy Simulator — port `5060`
-3. Parking Detector — port `5050`
-4. Find My Car/OCR — port `5002`
-
-| Terminal | Service | Command | Port |
-| --- | --- | --- | --- |
-| 1 | Angular frontend | `npm start -- --port 4300` inside `admin-web` | 4300 |
-| 2 | Occupancy simulator | `./.venv/bin/python -m backend.parking_occupancy` | 5060 |
-| 3 | Parking detector | `./.venv/bin/python detection/parking_detector_api.py` | 5050 |
-| 4 | Find My Car/OCR | `./.venv/bin/python find_my_car_system/backend/find_my_car_api.py` | 5002 |
-
-## 9. Verify the full system
-
-1. Open `http://localhost:4300` and sign in.
-2. Open Parking Spots and confirm occupancy changes.
-3. Open Test Parking Detection and choose an image from the left.
-4. Click **Test** and confirm all relevant car outlines and spot results appear.
-5. Test a double-parking image and confirm one top-right popup and one active Firebase notification per offending car.
-6. Open Find My Car and confirm its API status is available.
-7. Upload a car image, review the OCR popup, and confirm only when the plate and images are correct.
-
-## 10. Troubleshooting
-
-### Test Detection shows old results or only one car
-
-Restart Terminal 3. The detector runs without automatic Python code reloading.
-
-### Test Detection cannot connect
-
-```bash
-curl http://localhost:5050/health
-```
-
-### Parking occupancy does not update
-
-```bash
 curl http://localhost:5060/health
-```
-
-### Find My Car API is unavailable
-
-```bash
 curl http://127.0.0.1:5002/
 ```
 
-### Cloudinary says `Must supply api_key`
+Operational endpoints return HTTP 401 without a bearer token.
 
-Check the `CLOUDINARY_URL` in `find_my_car_system/backend/.env`, then restart the detector and Find My Car APIs.
+## Tests
 
-### Firebase notifications are not created
+```bash
+npm --prefix admin-web exec tsc -- -p tsconfig.app.json --noEmit
+npm run test:python
+npm run build
+```
 
-Confirm `serviceAccountKey.json` belongs to the same Firebase project as the frontend and can write to `notifications`, then restart the detector API.
-
-### A port is already in use
-
-Stop the old process on that port. Run only one instance of each API.
-
-## 11. Stop the system
-
-Press `Ctrl+C` in each of the four terminals.
+The production build has been verified with the project's pinned Angular toolchain. Build warnings about the initial bundle budget and jsPDF/canvg CommonJS dependencies are non-blocking.

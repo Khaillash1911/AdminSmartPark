@@ -33,9 +33,9 @@
     "zone.js": "^0.16.1"
   },
   "devDependencies": {
-    "@angular/build": "^21.2.7",
-    "@angular/cli": "^21.2.7",
-    "@angular/compiler-cli": "^21.2.20",
+    "@angular/build": "21.2.20",
+    "@angular/cli": "21.2.20",
+    "@angular/compiler-cli": "21.2.20",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
   }

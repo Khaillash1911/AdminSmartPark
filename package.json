@@ -1,0 +1,17 @@
+{
+  "name": "smartpark-admin-workspace",
+  "private": true,
+  "scripts": {
+    "dev:all": "concurrently --kill-others --names ANGULAR,DETECTOR,PARKING,ANPR --prefix-colors blue,magenta,green,cyan \"npm --prefix admin-web start\" \"npm run api:detector\" \"npm run api:parking\" \"npm run api:anpr\"",
+    "api:detector": "node scripts/run-python.mjs detection/parking_detector_api.py",
+    "api:parking": "node scripts/run-python.mjs -m backend.parking_occupancy",
+    "api:anpr": "node scripts/run-python.mjs find_my_car_system/backend/find_my_car_api.py",
+    "api:gateway": "node scripts/run-python.mjs -m backend.ai_gateway",
+    "ai:tunnel": "node --env-file-if-exists=.env scripts/ai-tunnel.mjs",
+    "build": "npm --prefix admin-web run build",
+    "test:python": "node scripts/run-python.mjs -m unittest backend.tests.test_parking_simulator -v"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

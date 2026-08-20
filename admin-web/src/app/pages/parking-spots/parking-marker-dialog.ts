@@ -12,6 +12,8 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { Firestore, doc, getDoc, setDoc, serverTimestamp } from '@angular/fire/firestore';
+import { AdminAuthService } from '../../core/services/admin-auth.service';
+import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.service';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export type Point = [number, number];
@@ -421,7 +423,9 @@ export class ParkingMarkerDialogComponent implements AfterViewInit, OnDestroy {
     @Inject(MAT_DIALOG_DATA) public data: any,
     private snack: MatSnackBar,
     private cdr: ChangeDetectorRef,
-    private firestore: Firestore
+    private firestore: Firestore,
+    private authService: AdminAuthService,
+    private aiRuntime: AiRuntimeConfigService
   ) {}
 
   ngAfterViewInit() {
@@ -517,7 +521,9 @@ export class ParkingMarkerDialogComponent implements AfterViewInit, OnDestroy {
       for (const file of files) {
         const body = new FormData();
         body.append('file', file);
-        const response = await fetch('/detector-api/parking-map-image', { method: 'POST', body });
+        const response = await this.authService.authorizedFetch(
+          this.aiRuntime.detectorUrl('parking-map-image'), { method: 'POST', body }
+        );
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || `Could not upload ${file.name}`);
         this.addImage(data.name, data.image_url);

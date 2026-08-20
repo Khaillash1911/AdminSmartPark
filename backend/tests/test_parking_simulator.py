@@ -14,6 +14,7 @@ class ParkingSimulatorTests(unittest.TestCase):
         def __init__(self):
             self.current = None
             self.snapshots = []
+            self.simulation_claimed = False
 
         def load_current(self):
             return deepcopy(self.current)
@@ -53,11 +54,19 @@ class ParkingSimulatorTests(unittest.TestCase):
                 value["exits"] += sum(item["exits"] for item in snapshot["rows"])
             return [{"date": day, **totals[day]} for day in sorted(totals)[-limit:]]
 
+        def try_acquire_simulation(self, minimum_interval_seconds=55):
+            if self.simulation_claimed:
+                return False
+            self.simulation_claimed = True
+            return True
+
     def create_simulator(self) -> ParkingOccupancySimulator:
         return ParkingOccupancySimulator(store=self.MemoryStore())
 
     def create_test_app(self):
-        return create_app(start_scheduler=False, simulator=self.create_simulator())
+        app = create_app(simulator=self.create_simulator())
+        app.config["TESTING_AUTH_DISABLED"] = True
+        return app
 
     def test_row_values_stay_within_capacity(self):
         simulator = self.create_simulator()
@@ -137,6 +146,19 @@ class ParkingSimulatorTests(unittest.TestCase):
         self.assertEqual(data["period"], "week")
         self.assertGreaterEqual(len(data["records"]), 1)
         self.assertIn("entries", data["records"][-1])
+
+    def test_request_driven_simulation_endpoint(self):
+        client = self.create_test_app().test_client()
+        first = client.post("/api/parking/simulate")
+        second = client.post("/api/parking/simulate")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.get_json()["status"], "updated")
+        self.assertEqual(second.get_json()["status"], "skipped")
+
+    def test_protected_api_rejects_missing_token(self):
+        app = create_app(simulator=self.create_simulator())
+        response = app.test_client().get("/api/parking/occupancy")
+        self.assertEqual(response.status_code, 401)
 
     def test_oku_violation_requires_explicit_oku_registration(self):
         self.assertFalse(_is_oku_violation({"is_oku": True}))
