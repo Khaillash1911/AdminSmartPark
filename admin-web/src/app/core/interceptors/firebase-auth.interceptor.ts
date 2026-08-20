@@ -3,12 +3,17 @@ import { HttpInterceptorFn } from '@angular/common/http';
 import { Auth } from '@angular/fire/auth';
 import { from, switchMap } from 'rxjs';
 
+const protectedApiRoots = ['/api', '/detector-api', '/anpr-api'];
+
+const isProtectedPath = (path: string) =>
+  protectedApiRoots.some(root => path === root || path.startsWith(`${root}/`));
+
 const isProtectedApi = (url: string) => {
-  if (['/api/', '/detector-api/', '/anpr-api/'].some(prefix => url.startsWith(prefix))) return true;
+  if (isProtectedPath(url.split(/[?#]/, 1)[0])) return true;
   try {
     const parsed = new URL(url);
     return parsed.protocol === 'https:' && parsed.hostname.endsWith('.trycloudflare.com') &&
-      ['/api/', '/detector-api/', '/anpr-api/'].some(prefix => parsed.pathname.startsWith(prefix));
+      isProtectedPath(parsed.pathname);
   } catch {
     return false;
   }

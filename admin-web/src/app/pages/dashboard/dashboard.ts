@@ -16,6 +16,7 @@ import { PricingConfig, RevenueService } from '../../core/services/revenue.servi
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AdminNotification } from '../../core/services/notification-admin.service';
+import { PageSkeletonComponent } from '../../shared/page-skeleton/page-skeleton';
 
 interface DashboardBucket {
   label: string;
@@ -39,9 +40,11 @@ interface DashboardBucket {
     MatButtonToggleModule,
     MatMenuModule,
     MatDividerModule,
-    FormsModule
+    FormsModule,
+    PageSkeletonComponent
   ],
   template: `
+    <app-page-skeleton *ngIf="isLoading" variant="dashboard"></app-page-skeleton>
     <div class="dashboard-header">
       <div>
         <h1 class="page-title">Analytics & Revenue Dashboard</h1>
@@ -434,6 +437,7 @@ interface DashboardBucket {
   `]
 })
 export class DashboardPage implements OnInit, OnDestroy {
+  isLoading = true;
   selectedPeriod: 'today' | 'week' | 'month' = 'week';
   liveData = signal({ carsParked: 0, spotsAvailable: 0, okusAvailable: 0, activeViolations: 0, totalSpots: 0 });
   todayRevenue = signal(0);
@@ -532,6 +536,8 @@ export class DashboardPage implements OnInit, OnDestroy {
     } catch (error) {
       console.error('Dashboard analytics refresh failed:', error);
       this.analyticsError.set('Some live analytics are unavailable. Check the occupancy API and Firebase connection.');
+    } finally {
+      this.isLoading = false;
     }
   }
 

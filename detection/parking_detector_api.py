@@ -310,21 +310,26 @@ def _write_double_park_notification(db, violation: dict[str, Any]) -> bool:
         notification_ref = db.collection("notifications").document(doc_key)
         violation_ref = db.collection("violations").document(doc_key)
         existing_snapshot = notification_ref.get()
-        if existing_snapshot.exists:
+        existing_violation_snapshot = violation_ref.get()
+        if existing_snapshot.exists and existing_violation_snapshot.exists:
             existing = existing_snapshot.to_dict() or {}
-            if existing.get("resolved") or existing.get("is_read"):
-                # The same offence has happened again after being handled.
-                # Reopen the existing document so the live badge/feed triggers
-                # again without creating a duplicate notification record.
-                notification_ref.set(notification)
-                violation_ref.set(violation_record)
-            elif not violation_ref.get().exists:
-                violation_ref.set(violation_record)
-            # An already-active offence remains one active notification.
-            return True
+            existing_violation = existing_violation_snapshot.to_dict() or {}
+            notification_active = not existing.get("resolved") and not existing.get("is_read")
+            violation_active = (
+                not existing_violation.get("resolved")
+                and existing_violation.get("status") != "resolved"
+            )
+            # An already-active offence remains one record. If either copy was
+            # resolved independently, reopen both below to keep them in sync.
+            if notification_active and violation_active:
+                return True
 
-        notification_ref.set(notification)
-        violation_ref.set(violation_record)
+        # Commit the canonical violation and its notification atomically so a
+        # partial write cannot leave the Violations tab out of sync.
+        batch = db.batch()
+        batch.set(notification_ref, notification)
+        batch.set(violation_ref, violation_record)
+        batch.commit()
         return True
     except Exception as exc:
         print(f"[WARN] Failed to write double-park notification: {exc}", flush=True)

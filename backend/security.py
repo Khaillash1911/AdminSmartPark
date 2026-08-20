@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from functools import wraps
 from typing import Any, Callable
 
@@ -11,6 +12,7 @@ from backend.firestore_client import get_firestore_client
 
 
 ADMIN_ROLES = {"super_admin", "staff"}
+logger = logging.getLogger(__name__)
 
 
 def configure_cors(app) -> None:
@@ -44,9 +46,12 @@ def authenticate_admin_request():
     try:
         from firebase_admin import auth
 
+        # Initialize the Admin SDK before verifying the token. Vercel starts each
+        # function in a clean process, so no default Firebase app exists yet.
+        firestore_client = get_firestore_client()
         decoded = auth.verify_id_token(token, check_revoked=True)
         uid = decoded.get("uid") or decoded.get("sub")
-        admin = get_firestore_client().collection("admins").document(uid).get()
+        admin = firestore_client.collection("admins").document(uid).get()
         if not admin.exists:
             return jsonify({"error": "Administrator access required"}), 403
         admin_data = admin.to_dict() or {}
@@ -54,7 +59,8 @@ def authenticate_admin_request():
             return jsonify({"error": "Invalid administrator role"}), 403
         g.admin = {"uid": uid, **admin_data}
         return None
-    except Exception:
+    except Exception as exc:
+        logger.exception("Firebase administrator authentication failed: %s", type(exc).__name__)
         return jsonify({"error": "Invalid or expired Firebase token"}), 401
 
 

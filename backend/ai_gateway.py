@@ -46,7 +46,17 @@ def _proxy(base_url: str, path: str):
         return auth_error
 
     headers = {}
-    for name in ("Authorization", "Content-Type", "Accept"):
+    # Preserve browser CORS context when proxying. Without these headers the
+    # upstream Flask-CORS layer chooses its first localhost origin, and Safari
+    # blocks the otherwise successful response from the Vercel site.
+    for name in (
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers",
+    ):
         if value := request.headers.get(name):
             headers[name] = value
 

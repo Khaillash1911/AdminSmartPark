@@ -13,6 +13,7 @@ import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatSort, MatSortModule } from '@angular/material/sort';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { PageSkeletonComponent } from '../../shared/page-skeleton/page-skeleton';
 
 @Component({
   selector: 'app-notifications',
@@ -20,9 +21,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
   imports: [
     CommonModule, FormsModule, MatButtonModule, MatButtonToggleModule, MatCardModule,
     MatFormFieldModule, MatIconModule, MatInputModule, MatPaginatorModule,
-    MatSortModule, MatTableModule, MatTooltipModule
+    MatSortModule, MatTableModule, MatTooltipModule, PageSkeletonComponent
   ],
   template: `
+    <app-page-skeleton *ngIf="isLoading" variant="table"></app-page-skeleton>
     <div class="page-header">
       <div>
         <h1 class="page-title">Violations Register</h1>
@@ -177,6 +179,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
   `]
 })
 export class NotificationsPage implements OnInit, AfterViewInit, OnDestroy {
+  isLoading = true;
   displayedColumns = ['date', 'status', 'type', 'vehicle', 'location', 'details', 'action'];
   dataSource = new MatTableDataSource<AdminNotification>([]);
   filter: 'all' | 'unresolved' | 'resolved' | 'double_park' | 'oku_violation' = 'unresolved';
@@ -204,6 +207,10 @@ export class NotificationsPage implements OnInit, AfterViewInit, OnDestroy {
       this.activeCount = items.filter(item => !item.resolved).length;
       this.dataSource.data = items;
       this.applyFilter();
+      this.isLoading = false;
+    }, error => {
+      console.error('Live violations listener failed:', error);
+      this.isLoading = false;
     });
   }
 

@@ -23,10 +23,18 @@ class AiGatewayTests(unittest.TestCase):
         request.return_value = Mock(
             content=b'{"success":true}', status_code=200, headers={"Content-Type": "application/json"}
         )
-        response = self.client.post("/detector-api/detect-map", json={"image_url": "https://example.invalid/a.jpg"})
+        response = self.client.post(
+            "/detector-api/detect-map",
+            json={"image_url": "https://example.invalid/a.jpg"},
+            headers={"Origin": "https://smartpark-admin-nine.vercel.app"},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["success"])
         self.assertTrue(request.call_args.kwargs["url"].endswith("/detect-map"))
+        self.assertEqual(
+            request.call_args.kwargs["headers"]["Origin"],
+            "https://smartpark-admin-nine.vercel.app",
+        )
 
     @patch("backend.ai_gateway.requests.request", side_effect=ai_gateway.requests.ConnectionError())
     def test_unavailable_internal_service_returns_502(self, _request):

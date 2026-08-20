@@ -21,12 +21,27 @@ export class AiRuntimeConfigService {
   readonly status = signal<AiServiceStatus>('offline');
   readonly health = signal<AiHealth | null>(null);
   private baseUrl = '';
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private refreshPromise?: Promise<AiServiceStatus>;
 
   constructor(private firestore: Firestore, private http: HttpClient) {}
 
   async initialize(): Promise<AiServiceStatus> {
-    this.status.set('offline');
-    this.health.set(null);
+    if (!this.refreshTimer) {
+      this.refreshTimer = setInterval(() => void this.refresh(), 15000);
+    }
+    return this.refresh();
+  }
+
+  private refresh(): Promise<AiServiceStatus> {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = this.checkRuntime().finally(() => {
+      this.refreshPromise = undefined;
+    });
+    return this.refreshPromise;
+  }
+
+  private async checkRuntime(): Promise<AiServiceStatus> {
     try {
       const snapshot = await getDoc(doc(this.firestore, 'system_config/ai_api'));
       const value = snapshot.data() as AiRuntimeDocument | undefined;
@@ -57,6 +72,9 @@ export class AiRuntimeConfigService {
   }
 
   clear(): void {
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.refreshTimer = undefined;
+    this.refreshPromise = undefined;
     this.baseUrl = '';
     this.health.set(null);
     this.status.set('offline');

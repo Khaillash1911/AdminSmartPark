@@ -14,7 +14,7 @@ Do not deploy PyTorch, Ultralytics, EasyOCR, OpenCV inference, `detection/yolov8
 ## Vercel setup
 
 1. Import the GitHub repository into Vercel using the repository root as the project root.
-2. Select the **Services** framework preset because `vercel.json` uses `experimentalServices`.
+2. Select the **Services** framework preset because `vercel.json` uses the stable `services` configuration.
 3. Keep the existing `vercel.json`; confirm it contains only the `web` and `parking` services.
 4. Add these server-side Vercel environment variables for Preview and Production:
 

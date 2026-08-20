@@ -10,6 +10,7 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatDividerModule } from '@angular/material/divider';
 import { FindMyCarService, CarResult, PlateDetectionResponse, RegisteredCarUser } from '../../core/services/find-my-car.service';
+import { PageSkeletonComponent } from '../../shared/page-skeleton/page-skeleton';
 
 @Component({
   selector: 'app-find-my-car-test',
@@ -24,9 +25,11 @@ import { FindMyCarService, CarResult, PlateDetectionResponse, RegisteredCarUser 
     MatIconModule,
     MatChipsModule,
     MatProgressSpinnerModule,
-    MatDividerModule
+    MatDividerModule,
+    PageSkeletonComponent
   ],
   template: `
+    <app-page-skeleton *ngIf="initialLoading" variant="search"></app-page-skeleton>
     <div class="page-container">
       <div class="page-header">
         <div>
@@ -514,6 +517,8 @@ export class FindMyCarTestPage implements OnInit {
   uploadSuccess = '';
   carDetails = this.emptyCarDetails();
   matchedUserFound = false;
+  initialLoading = true;
+  private initialRequestsPending = 2;
 
   constructor(private findMyCarService: FindMyCarService) {}
 
@@ -528,10 +533,12 @@ export class FindMyCarTestPage implements OnInit {
     this.findMyCarService.checkApiStatus().subscribe({
       next: () => {
         this.apiStatus = 'online';
+        this.completeInitialRequest();
       },
       error: (err) => {
         this.apiStatus = 'offline';
         console.warn('Find My Car API is not reachable.', err);
+        this.completeInitialRequest();
       }
     });
   }
@@ -542,11 +549,18 @@ export class FindMyCarTestPage implements OnInit {
         if (response.success && response.plates) {
           this.samplePlates = response.plates;
         }
+        this.completeInitialRequest();
       },
       error: (err) => {
         console.warn('Could not load sample plates (backend might not support it yet).', err);
+        this.completeInitialRequest();
       }
     });
+  }
+
+  private completeInitialRequest() {
+    if (this.initialRequestsPending > 0) this.initialRequestsPending--;
+    this.initialLoading = this.initialRequestsPending > 0;
   }
 
   onCarImageSelected(event: Event) {

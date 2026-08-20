@@ -11,6 +11,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
+import { PageSkeletonComponent } from '../../shared/page-skeleton/page-skeleton';
 
 @Component({
   selector: 'app-settings',
@@ -24,9 +25,11 @@ import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
     MatButtonModule,
     MatIconModule,
     MatDividerModule,
-    MatSnackBarModule
+    MatSnackBarModule,
+    PageSkeletonComponent
   ],
   template: `
+    <app-page-skeleton *ngIf="isLoading" variant="settings"></app-page-skeleton>
     <div class="page-header">
       <div>
         <h1 class="page-title">System Settings</h1>
@@ -207,6 +210,7 @@ import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
   `]
 })
 export class SettingsPage implements OnInit {
+  isLoading = true;
   pricingForm: FormGroup;
   profileForm: FormGroup;
   isSaving = false;
@@ -243,9 +247,13 @@ export class SettingsPage implements OnInit {
   }
 
   async loadConfig() {
-    const config = await this.settingsService.getPricingConfig();
-    this.currentConfig = config;
-    this.pricingForm.patchValue(config);
+    try {
+      const config = await this.settingsService.getPricingConfig();
+      this.currentConfig = config;
+      this.pricingForm.patchValue(config);
+    } finally {
+      this.isLoading = false;
+    }
   }
 
   async savePricing() {

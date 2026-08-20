@@ -1,12 +1,30 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "experimentalServices": {
-    "web": { "entrypoint": "admin-web", "routePrefix": "/" },
+  "services": {
+    "web": {
+      "root": "admin-web",
+      "framework": "angular",
+      "outputDirectory": "dist/admin-web/browser"
+    },
     "parking": {
-      "entrypoint": "services/parking/main.py",
-      "routePrefix": "/api/parking",
-      "maxDuration": 60,
-      "includeFiles": "research/parking-analytics/**"
+      "root": ".",
+      "entrypoint": "services.parking.main:app",
+      "functions": {
+        "services/parking/main.py": {
+          "maxDuration": 60,
+          "includeFiles": "research/parking-analytics/**"
+        }
+      }
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/parking/:path*",
+      "destination": { "service": "parking" }
+    },
+    {
+      "source": "/(.*)",
+      "destination": { "service": "web" }
+    }
+  ]
 }

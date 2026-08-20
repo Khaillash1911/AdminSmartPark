@@ -1,16 +1,51 @@
-from backend.parking_occupancy import app as parking_app
+"""Vercel entry point for the lightweight request-driven parking service."""
+
+from __future__ import annotations
+
+import threading
+from typing import Any, Callable
+
+from flask import Flask, jsonify
+
+from backend.routes.parking_routes import parking_bp
+from backend.security import configure_cors
 
 
-class AddRoutePrefix:
-    """Services strips /api/parking; the existing Flask blueprint retains it."""
+class LazyService:
+    """Initialize Firestore/model-backed objects only after authentication."""
 
-    def __init__(self, application):
-        self.application = application
+    def __init__(self, factory: Callable[[], Any]):
+        self._factory = factory
+        self._instance = None
+        self._lock = threading.Lock()
 
-    def __call__(self, environ, start_response):
-        path = environ.get("PATH_INFO", "/")
-        environ["PATH_INFO"] = f"/api/parking{path if path.startswith('/') else '/' + path}"
-        return self.application(environ, start_response)
+    def __getattr__(self, name: str):
+        if self._instance is None:
+            with self._lock:
+                if self._instance is None:
+                    self._instance = self._factory()
+        return getattr(self._instance, name)
 
 
-app = AddRoutePrefix(parking_app)
+def _simulator():
+    from backend.simulator.occupancy_simulator import ParkingOccupancySimulator
+
+    return ParkingOccupancySimulator()
+
+
+def _predictor():
+    from backend.analytics_model import ParkingAnalyticsPredictor
+
+    return ParkingAnalyticsPredictor()
+
+
+app = Flask(__name__)
+configure_cors(app)
+app.config["PARKING_SIMULATOR"] = LazyService(_simulator)
+app.config["PARKING_ANALYTICS_PREDICTOR"] = LazyService(_predictor)
+app.register_blueprint(parking_bp)
+
+
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok", "source": "SIMULATION"})

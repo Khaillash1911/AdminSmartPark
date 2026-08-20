@@ -15,6 +15,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subscription } from 'rxjs';
+import { PageSkeletonComponent } from '../../shared/page-skeleton/page-skeleton';
 
 @Component({
   selector: 'app-view-data',
@@ -33,9 +34,11 @@ import { Subscription } from 'rxjs';
     MatMenuModule,
     MatProgressBarModule,
     MatDividerModule,
-    MatTooltipModule
+    MatTooltipModule,
+    PageSkeletonComponent
   ],
   template: `
+    <app-page-skeleton *ngIf="isLoading" variant="table"></app-page-skeleton>
     <div class="page-header">
       <div>
         <h1 class="page-title">User Management</h1>
@@ -52,8 +55,6 @@ import { Subscription } from 'rxjs';
           <input matInput (keyup)="applyFilter($event)" placeholder="Search by name, TP number, or plate" #input>
         </mat-form-field>
       </mat-card-header>
-
-      <mat-progress-bar mode="indeterminate" *ngIf="isLoading"></mat-progress-bar>
 
       <mat-card-content class="table-container">
         <table mat-table [dataSource]="dataSource" matSort>

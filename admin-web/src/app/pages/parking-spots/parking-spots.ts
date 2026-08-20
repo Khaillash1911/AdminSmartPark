@@ -11,6 +11,7 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { Subscription } from 'rxjs';
 import { ParkingMarkerDialogComponent } from './parking-marker-dialog';
 import { TestDetectionDialogComponent } from './test-detection-dialog';
+import { PageSkeletonComponent } from '../../shared/page-skeleton/page-skeleton';
 import {
   ParkingOccupancyResponse,
   ParkingOccupancyService,
@@ -46,9 +47,11 @@ interface ParkingRow {
     MatProgressBarModule,
     MatTooltipModule,
     MatChipsModule,
-    MatDialogModule
+    MatDialogModule,
+    PageSkeletonComponent
   ],
   template: `
+    <app-page-skeleton *ngIf="isLoading" variant="parking"></app-page-skeleton>
     <div class="parking-page">
       <div class="page-header">
         <div class="title-block">
@@ -74,8 +77,6 @@ interface ParkingRow {
           </button>
         </div>
       </div>
-
-      <mat-progress-bar mode="indeterminate" *ngIf="isLoading"></mat-progress-bar>
 
       <div class="summary-strip">
         <mat-card class="mini-card total-card">

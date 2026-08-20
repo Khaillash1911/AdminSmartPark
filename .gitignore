@@ -58,3 +58,5 @@ research/parking-analytics/monthly/outputs/models/*
 
 # Firebase Service Account Key
 serviceAccountKey.json
+.vercel
+.env*

@@ -1,6 +1,6 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule, Router } from '@angular/router';
+import { NavigationCancel, NavigationEnd, NavigationError, NavigationStart, RouterModule, Router } from '@angular/router';
 import { AdminAuthService } from '../../core/services/admin-auth.service';
 import { NotificationAdminService } from '../../core/services/notification-admin.service';
 import { MatSidenavModule } from '@angular/material/sidenav';
@@ -9,9 +9,10 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatButtonModule } from '@angular/material/button';
 import { MatBadgeModule } from '@angular/material/badge';
-import { Observable } from 'rxjs';
+import { Observable, Subscription } from 'rxjs';
 import { AdminSessionService } from '../../core/services/admin-session.service';
 import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.service';
+import { PageSkeletonComponent, SkeletonVariant } from '../../shared/page-skeleton/page-skeleton';
 
 @Component({
   selector: 'app-shell',
@@ -24,7 +25,8 @@ import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.se
     MatIconModule,
     MatToolbarModule,
     MatButtonModule,
-    MatBadgeModule
+    MatBadgeModule,
+    PageSkeletonComponent
   ],
   template: `
     <div class="app-container" [class.is-mobile]="mobileQuery.matches">
@@ -33,15 +35,15 @@ import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.se
           <mat-icon>menu</mat-icon>
         </button>
         <span class="toolbar-title flex-align-center">
-          <mat-icon class="mr-2">local_parking</mat-icon>
           SmartPark APU Admin
         </span>
         <span class="spacer"></span>
         <span class="ai-status" [class.ai-online]="aiStatus() === 'online'" [class.ai-degraded]="aiStatus() === 'degraded'">
-          AI {{ aiStatus() | uppercase }}
+          <span class="status-dot"></span>
+          {{ aiStatus() === 'online' ? 'Online' : aiStatus() === 'degraded' ? 'Degraded' : 'Offline' }}
         </span>
-        <div class="user-info" *ngIf="adminName$ | async as name">
-          <span class="admin-greeting">Welcome, {{ name }}</span>
+        <div class="user-info">
+          <span class="admin-greeting">Welcome Back</span>
           <span class="admin-role-badge">{{ (adminRole$ | async) === 'super_admin' ? 'SUPER ADMIN' : 'STAFF' }}</span>
         </div>
       </mat-toolbar>
@@ -92,6 +94,7 @@ import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.se
         </mat-sidenav>
 
         <mat-sidenav-content class="main-content">
+          <app-page-skeleton *ngIf="routeLoading" [variant]="routeSkeleton"></app-page-skeleton>
           <router-outlet></router-outlet>
         </mat-sidenav-content>
       </mat-sidenav-container>
@@ -137,13 +140,19 @@ import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.se
     .ai-status {
       margin-right: 14px;
       padding: 4px 9px;
-      border-radius: 12px;
-      background: #c62828;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 999px;
+      background: #b71c1c;
       color: white;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
       font-size: 11px;
       font-weight: 700;
+      letter-spacing: .02em;
     }
-    .ai-status.ai-online { background: #2e7d32; }
+    .ai-status .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 2px rgba(255,255,255,.14); }
+    .ai-status.ai-online { background: #1b5e20; }
     .ai-status.ai-degraded { background: #ef6c00; }
     .app-toolbar {
       background-color: var(--primary-dark-blue);
@@ -156,9 +165,6 @@ import { AiRuntimeConfigService } from '../../core/services/ai-runtime-config.se
     .flex-align-center {
       display: flex;
       align-items: center;
-    }
-    .mr-2 {
-      margin-right: 8px;
     }
     .user-info {
       display: flex;
@@ -228,6 +234,9 @@ export class ShellPage implements OnInit, OnDestroy {
   adminName$: Observable<string | null>;
   adminRole$: Observable<string | null>;
   readonly aiStatus;
+  routeLoading = true;
+  routeSkeleton: SkeletonVariant = 'dashboard';
+  private routerSubscription?: Subscription;
 
   constructor(
     private authService: AdminAuthService,
@@ -244,6 +253,14 @@ export class ShellPage implements OnInit, OnDestroy {
     this.adminName$ = this.authService.getAdminName();
     this.adminRole$ = this.authService.getAdminRole();
     this.aiStatus = this.aiRuntime.status;
+    this.routerSubscription = this.router.events.subscribe(event => {
+      if (event instanceof NavigationStart) {
+        this.routeLoading = true;
+        this.routeSkeleton = this.skeletonForUrl(event.url);
+      } else if (event instanceof NavigationEnd || event instanceof NavigationCancel || event instanceof NavigationError) {
+        this.routeLoading = false;
+      }
+    });
   }
 
   ngOnInit() {
@@ -256,6 +273,7 @@ export class ShellPage implements OnInit, OnDestroy {
   ngOnDestroy() {
     this.adminSession.stop();
     this.aiRuntime.clear();
+    this.routerSubscription?.unsubscribe();
   }
 
   async logout() {
@@ -263,5 +281,13 @@ export class ShellPage implements OnInit, OnDestroy {
     this.aiRuntime.clear();
     await this.authService.adminLogout();
     this.router.navigate(['/login']);
+  }
+
+  private skeletonForUrl(url: string): SkeletonVariant {
+    if (url.includes('parking-spots')) return 'parking';
+    if (url.includes('find-my-car')) return 'search';
+    if (url.includes('settings')) return 'settings';
+    if (url.includes('view-data') || url.includes('notifications')) return 'table';
+    return 'dashboard';
   }
 }
