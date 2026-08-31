@@ -46,9 +46,6 @@ def _proxy(base_url: str, path: str):
         return auth_error
 
     headers = {}
-    # Preserve browser CORS context when proxying. Without these headers the
-    # upstream Flask-CORS layer chooses its first localhost origin, and Safari
-    # blocks the otherwise successful response from the Vercel site.
     for name in (
         "Authorization",
         "Content-Type",
@@ -124,7 +121,6 @@ def recognize_url():
         return jsonify({"success": False, "message": "OCR service is currently offline"}), 502
 
 
-# Preferred public aliases.
 @app.route("/api/detection/parking", methods=["POST", "OPTIONS"])
 @app.route("/api/detection/double-parking", methods=["POST", "OPTIONS"])
 def detect_parking():
@@ -141,7 +137,6 @@ def find_car(plate: str):
     return _proxy(OCR_INTERNAL_URL, f"find-car/{plate}")
 
 
-# Compatibility routes keep all existing Angular payloads and responses intact.
 @app.route("/detector-api/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 def detector_proxy(path: str):
     return _proxy(YOLO_INTERNAL_URL, path)

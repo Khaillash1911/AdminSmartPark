@@ -23,9 +23,6 @@ def get_firestore_client() -> Any:
     import firebase_admin
     from firebase_admin import credentials, firestore
 
-    # Vercel can dispatch concurrent requests into the same warm function. Guard
-    # the check-and-create sequence so only one request initializes the default
-    # Firebase app while the others wait and reuse it.
     with _firebase_initialization_lock:
         try:
             firebase_admin.get_app()
@@ -40,7 +37,6 @@ def get_firestore_client() -> Any:
             elif credential_path.is_file():
                 credential = credentials.Certificate(str(credential_path))
             else:
-                # Supports Application Default Credentials on managed hosting.
                 credential = credentials.ApplicationDefault()
 
             firebase_admin.initialize_app(credential)

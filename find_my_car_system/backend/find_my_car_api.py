@@ -2,13 +2,11 @@ from flask import Flask, jsonify, request
 import sys
 import tempfile
 from ultralytics import YOLO
-# pyrefly: ignore [missing-import]
 import cv2
 import os
 import re
 import random
 import hashlib
-# pyrefly: ignore [missing-import]
 import easyocr
 from werkzeug.utils import secure_filename
 from datetime import datetime, timezone
@@ -17,9 +15,7 @@ from uuid import uuid4
 from urllib.parse import urlparse, unquote
 from google.cloud.firestore_v1.base_query import FieldFilter
 from dotenv import load_dotenv
-# pyrefly: ignore [missing-import]
 import cloudinary
-# pyrefly: ignore [missing-import]
 import cloudinary.uploader
 
 app = Flask(__name__)
@@ -78,8 +74,6 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(PLATE_FOLDER, exist_ok=True)
 os.makedirs(CAR_IMAGE_FOLDER, exist_ok=True)
 
-# Detection results are deliberately temporary. A Firestore document is only
-# created after the administrator confirms the OCR preview.
 pending_detections = {}
 
 model = None
@@ -170,8 +164,6 @@ def read_plate_multi_pass(plate_crop):
                 if score > best["score"]:
                     best = {"text": cleaned, "raw": raw, "confidence": float(confidence), "score": score}
 
-            # A visible gap often makes EasyOCR return letters and numbers as
-            # separate boxes. Sort left-to-right and explicitly join them.
             ordered = sorted(ocr_results, key=lambda item: min(point[0] for point in item[0]))
             if len(ordered) > 1:
                 combined_raw = " ".join(item[1] for item in ordered)
@@ -259,8 +251,6 @@ def upload_confirmed_images(pending, plate_number, token, image_hash):
             "find_my_car_system/backend/.env"
         )
 
-    # Content-addressed IDs ensure two concurrent requests for the exact same
-    # image cannot create separate Cloudinary assets.
     car_public_id = f"smartpark/cars/by_hash/{image_hash}"
     plate_public_id = f"smartpark/plate_crops/{plate_number}_{token[:8]}"
     uploaded_ids = []
@@ -315,8 +305,6 @@ def persist_pending_detection(token, pending, output_path, image_hash):
         "image_hash": image_hash,
         "temporary_cloudinary_ids": [item["public_id"] for item in uploads],
     }
-    # Local paths are useful within one local process but must not be relied on
-    # by a later serverless invocation.
     firestore_record = {key: value for key, value in stored.items() if not key.endswith("_path")}
     db.collection("pending_car_detections").document(token).set(firestore_record)
     return stored
@@ -385,8 +373,6 @@ def detect_plate():
             "message": "Invalid image file"
         }), 400
 
-    # A lower detector threshold plus a padded crop prevents plate edges from
-    # being lost before OCR, while OCR scoring filters weak text candidates.
     results = get_model()(image, conf=0.2, imgsz=1280, verbose=False)
 
     detections = []
@@ -411,7 +397,6 @@ def detect_plate():
             x2 = min(image_width, x2 + pad_x)
             y2 = min(image_height, y2 + pad_y)
 
-            # Crop detected number plate
             plate_crop = image[y1:y2, x1:x2]
 
             plate_text, raw_text, ocr_confidence = read_plate_multi_pass(plate_crop)
@@ -439,7 +424,6 @@ def detect_plate():
             ):
                 best_crop_filename = crop_filename
 
-            # Draw box and plate text on image
             label = plate_text if plate_text else "Plate"
 
             cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -518,8 +502,6 @@ def confirm_car():
     if not plate_number:
         return jsonify({"success": False, "message": "A valid plate number is required"}), 400
 
-    # Registered-user data is authoritative. If this plate belongs to a user,
-    # do not trust duplicate owner/vehicle fields sent by the browser.
     matched_user = find_registered_user(plate_number)
     required_fields = (
         ("entry_time",)

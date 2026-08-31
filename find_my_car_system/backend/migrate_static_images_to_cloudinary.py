@@ -95,8 +95,6 @@ def main() -> None:
             if name.startswith(plate) and (STATIC_DIR / "car_images" / name).exists()
         ]
         if car_candidates:
-            # Token-suffixed files were created by the newer confirmation flow;
-            # lexical order deterministically selects the last one if duplicates exist.
             selected_name, selected = sorted(car_candidates)[-1]
             changes["image_url"] = selected["url"]
             changes["cloudinary_public_id"] = selected["public_id"]

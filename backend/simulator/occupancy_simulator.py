@@ -126,10 +126,6 @@ class ParkingOccupancySimulator:
         capacity_factor = row_config.capacity / 48
         fullness = occupied / row_config.capacity if row_config.capacity else 0
 
-        # Make the process mean-reverting instead of allowing 100% occupancy
-        # to become an absorbing state. Arrival pressure disappears as the row
-        # fills, while departure pressure increases above the time-of-day
-        # target occupancy.
         target_fullness = min(
             0.96,
             max(0.04, self._target_percentage(now, row_config.section) * row_variation),
@@ -161,8 +157,6 @@ class ParkingOccupancySimulator:
         arrivals = self._small_count(expected_arrivals)
         departures = self._small_count(expected_departures)
         if occupied >= row_config.capacity:
-            # A full row must free at least one space on its next simulation
-            # tick; there is no available space for a successful arrival.
             arrivals = 0
             departures = max(1, departures)
         return arrivals, departures

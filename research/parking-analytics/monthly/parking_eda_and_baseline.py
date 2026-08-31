@@ -10,7 +10,6 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
-# Resolve every file relative to this script so it works from any directory.
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 INPUT_CSV = OUTPUT_DIR / "monthly_parking_model_ready.csv"
@@ -33,7 +32,6 @@ def save_line_chart(columns, title, ylabel, filename):
     plt.close()
 
 
-# Load, convert, and chronologically order the existing model-ready dataset.
 df = pd.read_csv(INPUT_CSV)
 df["Date"] = pd.to_datetime(df["Date"])
 df = df.sort_values("Date").reset_index(drop=True)
@@ -49,27 +47,22 @@ print("\nMissing values in input dataset:")
 print(original_missing)
 print("\nDuplicate rows:", duplicate_count)
 
-# Add weekly lag features from the corresponding day one week earlier.
 df["EntriesLag7"] = df["Entries"].shift(7)
 df["ExitsLag7"] = df["Exits"].shift(7)
 
-# Add short-term rolling averages using only prior observations.
 df["EntryRolling3"] = df["Entries"].shift(1).rolling(window=3).mean()
 df["ExitRolling3"] = df["Exits"].shift(1).rolling(window=3).mean()
 
-# Add known calendar information for the day being predicted.
 target_date = df["Date"] + pd.Timedelta(days=1)
 df["TargetDayOfWeekNum"] = target_date.dt.dayofweek
 df["TargetIsWeekend"] = (df["TargetDayOfWeekNum"] >= 5).astype(int)
 df["TargetMonth"] = target_date.dt.month
 
-# Report feature-induced missing values before removing unusable rows.
 print("\nMissing values after final feature engineering:")
 print(df.isnull().sum())
 model_df = df.dropna().reset_index(drop=True)
 model_df.to_csv(V2_CSV, index=False, date_format="%Y-%m-%d")
 
-# Plot daily entry and exit volume.
 save_line_chart(
     ["Entries", "Exits"],
     "Daily Parking Entry and Exit Trend",
@@ -77,7 +70,6 @@ save_line_chart(
     "daily_entry_exit_trend.png",
 )
 
-# Calculate and save monthly descriptive statistics.
 monthly_summary = model_df.groupby("Month")[["Entries", "Exits"]].agg(
     ["mean", "sum", "max", "min"]
 )
@@ -96,7 +88,6 @@ plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "monthly_average_traffic.png", dpi=150)
 plt.close()
 
-# Calculate weekday averages in calendar order.
 day_order = [
     "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
 ]
@@ -115,7 +106,6 @@ plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "weekday_average_traffic.png", dpi=150)
 plt.close()
 
-# Compare weekday and weekend traffic.
 model_df["DayType"] = np.where(model_df["IsWeekend"] == 1, "Weekend", "Weekday")
 weekend_weekday_summary = (
     model_df.groupby("DayType")[["Entries", "Exits"]]
@@ -132,14 +122,12 @@ plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "weekend_vs_weekday.png", dpi=150)
 plt.close()
 
-# Analyse daily net vehicle flow.
 save_line_chart(["NetFlow"], "Daily Net Parking Flow", "Entries - Exits", "net_flow_trend.png")
 print("\nNet flow statistics:")
 print("Highest positive NetFlow:", model_df["NetFlow"].max())
 print("Lowest NetFlow:", model_df["NetFlow"].min())
 print("Average NetFlow:", model_df["NetFlow"].mean())
 
-# Save numerical correlations and print target relationships.
 numeric_df = model_df.select_dtypes(include=np.number)
 correlation = numeric_df.corr()
 correlation.to_csv(OUTPUT_DIR / "correlation_matrix.csv")
@@ -148,7 +136,6 @@ print(correlation["NextDayEntries"].sort_values(ascending=False))
 print("\nCorrelations with NextDayExits:")
 print(correlation["NextDayExits"].sort_values(ascending=False))
 
-# Save the ten highest and lowest traffic dates for both measures.
 traffic_columns = ["Date", "DayOfWeek", "Entries", "Exits", "NetFlow"]
 model_df.nlargest(10, "Entries")[traffic_columns].to_csv(
     OUTPUT_DIR / "highest_entry_days.csv", index=False, date_format="%Y-%m-%d"
@@ -163,7 +150,6 @@ model_df.nsmallest(10, "Exits")[traffic_columns].to_csv(
     OUTPUT_DIR / "lowest_exit_days.csv", index=False, date_format="%Y-%m-%d"
 )
 
-# Compare raw traffic with short- and longer-term rolling trends.
 save_line_chart(
     ["Entries", "EntryRolling7"],
     "Entries and Previous Seven-Day Rolling Average",
@@ -183,7 +169,6 @@ save_line_chart(
     "entry_short_vs_long_trend.png",
 )
 
-# Create a chronological 80/20 split without shuffling.
 split_index = int(len(model_df) * 0.80)
 train_df = model_df.iloc[:split_index].copy()
 test_df = model_df.iloc[split_index:].copy()
@@ -196,7 +181,6 @@ print("Testing rows:", len(test_df))
 print("Training date range:", train_df["Date"].min().date(), "to", train_df["Date"].max().date())
 print("Testing date range:", test_df["Date"].min().date(), "to", test_df["Date"].max().date())
 
-# Declare future model inputs explicitly; no model is trained at this stage.
 feature_columns = [
     "Entries", "Exits", "Month", "DayOfWeekNum", "IsWeekend", "NetFlow",
     "PrevDayEntries", "PrevDayExits", "EntryRolling3", "ExitRolling3",
@@ -206,7 +190,6 @@ feature_columns = [
 print("\nSelected future model features:")
 print(feature_columns)
 
-# Evaluate persistence baselines: tomorrow is predicted to equal today.
 baseline_entry_prediction = test_df["Entries"]
 baseline_exit_prediction = test_df["Exits"]
 
@@ -227,7 +210,6 @@ baseline_results = pd.DataFrame([
 ])
 baseline_results.to_csv(OUTPUT_DIR / "baseline_results.csv", index=False)
 
-# Plot actual next-day values against the naive predictions.
 for target, prediction, label, filename in [
     ("NextDayEntries", baseline_entry_prediction, "Entries", "baseline_entries_actual_vs_predicted.png"),
     ("NextDayExits", baseline_exit_prediction, "Exits", "baseline_exits_actual_vs_predicted.png"),
@@ -244,7 +226,6 @@ for target, prediction, label, filename in [
     plt.savefig(OUTPUT_DIR / filename, dpi=150)
     plt.close()
 
-# Calculate final facts for the console and written summary.
 highest_entry_row = model_df.loc[model_df["Entries"].idxmax()]
 highest_exit_row = model_df.loc[model_df["Exits"].idxmax()]
 most_active_weekday = weekday_summary["Entries"].idxmax()

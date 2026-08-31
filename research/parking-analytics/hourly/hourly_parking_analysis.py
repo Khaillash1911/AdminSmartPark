@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 
 
-# Keep source and generated evidence paths independent of the working directory.
 BASE_DIR = Path(__file__).resolve().parent
 INPUT_CSV = BASE_DIR / "combined_daily_parking.csv"
 OUTPUT_DIR = BASE_DIR / "outputs"
@@ -20,7 +19,6 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 PROFILE_DIR.mkdir(exist_ok=True)
 
 
-# Load the five sampled hourly reports without modifying the source CSV.
 df = pd.read_csv(INPUT_CSV)
 print("SMART PARKING HOURLY DATA VALIDATION")
 print("Shape:", df.shape)
@@ -32,7 +30,6 @@ print("Duplicate records:", df.duplicated().sum())
 print("Entries data type:", df["Entries"].dtype)
 print("Exits data type:", df["Exits"].dtype)
 
-# Stop explicitly if the expected complete sampled dataset is not present.
 required_columns = ["Date", "Time", "Entries", "Exits"]
 if df.columns.tolist() != required_columns:
     raise ValueError(f"Expected columns {required_columns}, found {df.columns.tolist()}.")
@@ -46,7 +43,6 @@ if df.isnull().any().any() or df.duplicated().any():
 if not (pd.api.types.is_numeric_dtype(df["Entries"]) and pd.api.types.is_numeric_dtype(df["Exits"])):
     raise TypeError("Entries and Exits must already be numeric.")
 
-# Parse dates and validate the original time-period format.
 parsed_dates = pd.to_datetime(df["Date"], errors="coerce")
 if parsed_dates.isnull().any():
     raise ValueError("One or more Date values could not be parsed.")
@@ -55,7 +51,6 @@ if not df["Time"].astype(str).map(lambda value: bool(time_pattern.match(value)))
     raise ValueError("One or more Time values do not match HH:00-HH:00.")
 df["Date"] = parsed_dates
 
-# Derive the starting hour while preserving the original Time label.
 df["Hour"] = df["Time"].str.extract(r"^(\d{2})", expand=False).astype(int)
 if not df["Hour"].between(0, 23).all():
     raise ValueError("Starting hours must be between 0 and 23.")
@@ -63,14 +58,12 @@ expected_hours = set(range(24))
 if any(set(group["Hour"]) != expected_hours for _, group in df.groupby("Date")):
     raise ValueError("Each date must contain each starting hour exactly once.")
 
-# Add descriptive calendar fields; they are not used for ML training.
 df["DayOfWeek"] = df["Date"].dt.day_name()
 df["DayOfWeekNum"] = df["Date"].dt.dayofweek
 df["IsWeekend"] = (df["DayOfWeekNum"] >= 5).astype(int)
 df = df.sort_values(["Date", "Hour"]).reset_index(drop=True)
 print("Hourly dataset validation passed.")
 
-# Calculate hourly traffic statistics across the five sampled reports.
 hourly_summary = (
     df.groupby(["Hour", "Time"], as_index=False)
     .agg(
@@ -88,7 +81,6 @@ hourly_summary = (
 )
 hourly_summary.to_csv(OUTPUT_DIR / "hourly_traffic_summary.csv", index=False)
 
-# Plot the principal average hourly entry and exit pattern.
 plt.figure(figsize=(12, 6))
 plt.plot(hourly_summary["Hour"], hourly_summary["AverageEntries"], marker="o", label="Average Entries")
 plt.plot(hourly_summary["Hour"], hourly_summary["AverageExits"], marker="o", label="Average Exits")
@@ -101,7 +93,6 @@ plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "average_hourly_traffic.png", dpi=150)
 plt.close()
 
-# Identify the overall average entry and exit peak periods.
 peak_entry = hourly_summary.loc[hourly_summary["AverageEntries"].idxmax()]
 peak_exit = hourly_summary.loc[hourly_summary["AverageExits"].idxmax()]
 print("\nPEAK ENTRY HOUR")
@@ -115,7 +106,6 @@ print("Average Exits:", peak_exit["AverageExits"])
 print("Minimum:", peak_exit["MinimumExits"])
 print("Maximum:", peak_exit["MaximumExits"])
 
-# Identify each sampled day's highest entry and exit periods.
 daily_peak_rows = []
 for date, day in df.groupby("Date", sort=True):
     entry_row = day.loc[day["Entries"].idxmax()]
@@ -130,7 +120,6 @@ for date, day in df.groupby("Date", sort=True):
 daily_peaks = pd.DataFrame(daily_peak_rows)
 daily_peaks.to_csv(OUTPUT_DIR / "daily_peak_hours.csv", index=False)
 
-# Count how consistently every period appears as an individual daily peak.
 entry_peak_counts = daily_peaks["PeakEntryHour"].value_counts()
 exit_peak_counts = daily_peaks["PeakExitHour"].value_counts()
 consistency_rows = []
@@ -149,7 +138,6 @@ consistency.to_csv(OUTPUT_DIR / "peak_hour_consistency.csv", index=False)
 overall_entry_consistency = int(entry_peak_counts.get(peak_entry["Time"], 0))
 overall_exit_consistency = int(exit_peak_counts.get(peak_exit["Time"], 0))
 
-# Draw entry and exit heatmaps using date-hour matrices.
 for measure, filename, title in [
     ("Entries", "entry_hour_heatmap.png", "Hourly Vehicle Entries by Sampled Date"),
     ("Exits", "exit_hour_heatmap.png", "Hourly Vehicle Exits by Sampled Date"),
@@ -167,7 +155,6 @@ for measure, filename, title in [
     plt.savefig(OUTPUT_DIR / filename, dpi=150)
     plt.close()
 
-# Estimate within-day vehicle accumulation from cumulative gate net flow.
 df["NetFlow"] = df["Entries"] - df["Exits"]
 df["CumulativeNetFlow"] = df.groupby("Date")["NetFlow"].cumsum()
 daily_accumulation_peaks = []
@@ -189,7 +176,6 @@ plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "estimated_vehicle_accumulation.png", dpi=150)
 plt.close()
 
-# Calculate and plot the average estimated accumulation by hour.
 average_accumulation = (
     df.groupby(["Hour", "Time"], as_index=False)["CumulativeNetFlow"]
     .mean()
@@ -210,7 +196,6 @@ plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "average_accumulation_pattern.png", dpi=150)
 plt.close()
 
-# Classify hourly total movement using quantiles derived from the 24 averages.
 hourly_levels = hourly_summary[["Hour", "Time", "AverageEntries", "AverageExits"]].copy()
 hourly_levels["AverageTotalMovement"] = hourly_levels["AverageEntries"] + hourly_levels["AverageExits"]
 low_threshold = hourly_levels["AverageTotalMovement"].quantile(0.33)
@@ -227,7 +212,6 @@ hourly_levels.to_csv(OUTPUT_DIR / "hourly_traffic_levels.csv", index=False)
 high_traffic_hours = hourly_levels.loc[hourly_levels["TrafficLevel"] == "HIGH", "Time"].tolist()
 low_traffic_hours = hourly_levels.loc[hourly_levels["TrafficLevel"] == "LOW", "Time"].tolist()
 
-# Compare average traffic again while marking the two different peak periods.
 plt.figure(figsize=(12, 6))
 plt.plot(hourly_summary["Hour"], hourly_summary["AverageEntries"], marker="o", label="Average Entries")
 plt.plot(hourly_summary["Hour"], hourly_summary["AverageExits"], marker="o", label="Average Exits")
@@ -242,7 +226,6 @@ plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "peak_entry_exit_comparison.png", dpi=150)
 plt.close()
 
-# Produce a supporting entry/exit traffic profile for each sampled date.
 for date, day in df.groupby("Date", sort=True):
     plt.figure(figsize=(11, 5))
     plt.plot(day["Hour"], day["Entries"], marker="o", label="Entries")
@@ -256,7 +239,6 @@ for date, day in df.groupby("Date", sort=True):
     plt.savefig(PROFILE_DIR / f"{date.date()}_traffic_profile.png", dpi=150)
     plt.close()
 
-# Save calculated periods in machine-readable form for later integration.
 profile = {
     "sampled_days": len(daily_peaks),
     "peak_entry_hour": peak_entry["Time"],
@@ -269,7 +251,6 @@ profile = {
 }
 (OUTPUT_DIR / "peak_hour_profile.json").write_text(json.dumps(profile, indent=4), encoding="utf-8")
 
-# Calculate daily totals and write the documented sampled-analysis summary.
 daily_totals = df.groupby("Date")[["Entries", "Exits"]].sum()
 limitation = (
     "Only five complete hourly reports were available for the hourly traffic analysis. "

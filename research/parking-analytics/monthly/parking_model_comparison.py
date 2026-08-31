@@ -13,7 +13,6 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
-# Keep generated evidence and models beside this script.
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 INPUT_CSV = OUTPUT_DIR / "monthly_parking_model_ready_v2.csv"
@@ -22,7 +21,6 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 MODEL_DIR.mkdir(exist_ok=True)
 
 
-# Calculate the three required regression evaluation metrics.
 def evaluate_model(y_true, y_pred):
     return {
         "MAE": mean_absolute_error(y_true, y_pred),
@@ -31,7 +29,6 @@ def evaluate_model(y_true, y_pred):
     }
 
 
-# Produce an actual-versus-predicted line chart for one target and model.
 def plot_predictions(dates, actual, predicted, title, filename):
     plt.figure(figsize=(11, 6))
     plt.plot(dates, actual, label="Actual", marker="o")
@@ -46,7 +43,6 @@ def plot_predictions(dates, actual, predicted, title, filename):
     plt.close()
 
 
-# Save a feature importance or coefficient table and horizontal chart.
 def save_explanation(values, csv_name, png_name, value_column, title):
     explanation = pd.DataFrame({"Feature": feature_columns, value_column: values})
     explanation = explanation.sort_values(value_column, ascending=False).reset_index(drop=True)
@@ -63,7 +59,6 @@ def save_explanation(values, csv_name, png_name, value_column, title):
     return explanation
 
 
-# Generate next-day entry and exit predictions from a feature row.
 def predict_next_day(entry_model, exit_model, feature_values):
     predicted_entries = entry_model.predict(feature_values)[0]
     predicted_exits = exit_model.predict(feature_values)[0]
@@ -73,7 +68,6 @@ def predict_next_day(entry_model, exit_model, feature_values):
     }
 
 
-# Classify predicted entry demand using training-set quantiles.
 def classify_demand(predicted_entries, low_threshold, high_threshold):
     if predicted_entries < low_threshold:
         return "LOW"
@@ -82,7 +76,6 @@ def classify_demand(predicted_entries, low_threshold, high_threshold):
     return "HIGH"
 
 
-# Load and validate the final model-ready dataset without changing it.
 df = pd.read_csv(INPUT_CSV)
 df["Date"] = pd.to_datetime(df["Date"])
 df = df.sort_values("Date").reset_index(drop=True)
@@ -94,7 +87,6 @@ print("Missing values:\n", df.isnull().sum())
 print("Duplicate rows:", df.duplicated().sum())
 print("Available columns:", df.columns.tolist())
 
-# Define the same candidate inputs for entry and exit prediction.
 feature_columns = [
     "Entries", "Exits", "Month", "DayOfWeekNum", "IsWeekend", "NetFlow",
     "PrevDayEntries", "PrevDayExits", "EntryRolling7", "ExitRolling7",
@@ -108,7 +100,6 @@ if missing_features:
 if df[feature_columns + target_columns].isnull().any().any():
     raise ValueError("Model inputs or targets contain missing values.")
 
-# Apply the same chronological 80/20 split as the baseline analysis.
 split_index = int(len(df) * 0.80)
 train_df = df.iloc[:split_index].copy()
 test_df = df.iloc[split_index:].copy()
@@ -117,14 +108,12 @@ print("Testing rows:", len(test_df))
 print("Training date range:", train_df["Date"].min().date(), "to", train_df["Date"].max().date())
 print("Testing date range:", test_df["Date"].min().date(), "to", test_df["Date"].max().date())
 
-# Explicitly validate the safeguards against target and chronological leakage.
 assert not set(target_columns).intersection(feature_columns)
 assert "Date" not in feature_columns and "DayOfWeek" not in feature_columns
 assert train_df["Date"].max() < test_df["Date"].min()
 assert {"TargetDayOfWeekNum", "TargetIsWeekend", "TargetMonth"}.issubset(feature_columns)
 print("Data leakage checks passed.")
 
-# Build common input matrices and target vectors.
 X_train = train_df[feature_columns]
 X_test = test_df[feature_columns]
 y_train_entries = train_df["NextDayEntries"]
@@ -132,7 +121,6 @@ y_test_entries = test_df["NextDayEntries"]
 y_train_exits = train_df["NextDayExits"]
 y_test_exits = test_df["NextDayExits"]
 
-# Re-evaluate the persistence baseline on the unchanged testing period.
 predictions = {
     "Naive Baseline": {
         "Entries": test_df["Entries"].to_numpy(),
@@ -140,7 +128,6 @@ predictions = {
     }
 }
 
-# Create independent estimators for each target and model family.
 models = {
     "Linear Regression": {
         "Entries": LinearRegression(),
@@ -166,7 +153,6 @@ models = {
     },
 }
 
-# Fit every trained model using training records only and predict the test period.
 for model_name, target_models in models.items():
     target_models["Entries"].fit(X_train, y_train_entries)
     target_models["Exits"].fit(X_train, y_train_exits)
@@ -175,7 +161,6 @@ for model_name, target_models in models.items():
         "Exits": target_models["Exits"].predict(X_test),
     }
 
-# Evaluate all baseline and trained predictions in one comparison table.
 result_rows = []
 for model_name, target_predictions in predictions.items():
     for target, actual in [("Entries", y_test_entries), ("Exits", y_test_exits)]:
@@ -187,7 +172,6 @@ for model_name, target_predictions in predictions.items():
 results_df = pd.DataFrame(result_rows)
 results_df.to_csv(OUTPUT_DIR / "model_comparison_results.csv", index=False)
 
-# Pivot metrics into an FYP-ready one-row-per-model summary.
 summary_rows = []
 for model_name in predictions:
     entry_result = results_df.query("Model == @model_name and Target == 'Entries'").iloc[0]
@@ -201,7 +185,6 @@ for model_name in predictions:
 comparison_summary = pd.DataFrame(summary_rows)
 comparison_summary.to_csv(OUTPUT_DIR / "model_comparison_summary.csv", index=False)
 
-# Select consistent winners by aggregate metric rank, then MAE and RMSE.
 def select_best_model(target):
     candidates = results_df[(results_df["Target"] == target) & (results_df["Model"] != "Naive Baseline")].copy()
     candidates["MAE_rank"] = candidates["MAE"].rank(method="min")
@@ -220,7 +203,6 @@ best_exit_model = models[best_exit_name]["Exits"]
 print("\nBEST ENTRY MODEL:", best_entry_name)
 print("BEST EXIT MODEL:", best_exit_name)
 
-# Create separate actual-versus-predicted plots for every trained model.
 file_stems = {
     "Linear Regression": "linear", "Random Forest": "random_forest",
     "Gradient Boosting": "gradient_boosting",
@@ -233,7 +215,6 @@ for model_name, stem in file_stems.items():
             f"{stem}_{target.lower()}_actual_vs_predicted.png",
         )
 
-# Plot signed residuals for the selected entry and exit models.
 for target, actual, model_name, filename in [
     ("Entries", y_test_entries, best_entry_name, "best_entry_model_errors.png"),
     ("Exits", y_test_exits, best_exit_name, "best_exit_model_errors.png"),
@@ -250,7 +231,6 @@ for target, actual, model_name, filename in [
     plt.savefig(OUTPUT_DIR / filename, dpi=150)
     plt.close()
 
-# Save tree-based feature importance evidence and charts.
 explanations = {}
 for model_name, prefix in [("Random Forest", "random_forest"), ("Gradient Boosting", "gradient")]:
     explanations[model_name] = {}
@@ -263,7 +243,6 @@ for model_name, prefix in [("Random Forest", "random_forest"), ("Gradient Boosti
             "Importance", f"{model_name} {target} Feature Importance",
         )
 
-# Standardize Linear Regression coefficients using training data for fair influence ranking.
 for target in ["Entries", "Exits"]:
     target_slug = "entry" if target == "Entries" else "exit"
     estimator = models["Linear Regression"][target]
@@ -291,7 +270,6 @@ for target in ["Entries", "Exits"]:
     plt.close()
     explanations.setdefault("Linear Regression", {})[target] = coefficients
 
-# Calculate the selected models' percentage improvement over the baseline.
 baseline_entry = results_df.query("Model == 'Naive Baseline' and Target == 'Entries'").iloc[0]
 baseline_exit = results_df.query("Model == 'Naive Baseline' and Target == 'Exits'").iloc[0]
 improvement_rows = []
@@ -308,19 +286,16 @@ improvement_df.to_csv(OUTPUT_DIR / "baseline_improvement_summary.csv", index=Fal
 print("\nImprovement over naive baseline:")
 print(improvement_df.to_string(index=False))
 
-# Save the selected estimators and their required ordered feature list.
 joblib.dump(best_entry_model, MODEL_DIR / "best_entry_prediction_model.pkl")
 joblib.dump(best_exit_model, MODEL_DIR / "best_exit_prediction_model.pkl")
 (MODEL_DIR / "model_features.txt").write_text("\n".join(feature_columns) + "\n", encoding="utf-8")
 
-# Derive LOW/MEDIUM/HIGH demand thresholds from training entry quantiles only.
 low_threshold = train_df["Entries"].quantile(0.33)
 high_threshold = train_df["Entries"].quantile(0.66)
 threshold_text = f"LOW: predicted entries < {low_threshold:.2f}\nMEDIUM: {low_threshold:.2f} <= predicted entries < {high_threshold:.2f}\nHIGH: predicted entries >= {high_threshold:.2f}\n"
 (OUTPUT_DIR / "demand_thresholds.txt").write_text(threshold_text, encoding="utf-8")
 print("\nDemand thresholds:\n" + threshold_text)
 
-# Demonstrate inference with the newest available feature row, not as ground truth.
 demo_features = df.iloc[[-1]][feature_columns]
 demo_prediction = predict_next_day(best_entry_model, best_exit_model, demo_features)
 demo_level = classify_demand(demo_prediction["predicted_entries"], low_threshold, high_threshold)
@@ -335,7 +310,6 @@ This is a model demonstration, not observed ground truth.
 (OUTPUT_DIR / "demo_prediction.txt").write_text(demo_text, encoding="utf-8")
 print(demo_text)
 
-# Extract model-specific top-five explanations for the selected estimators.
 top_entry_explanations = explanations[best_entry_name]["Entries"].head(5)
 top_exit_explanations = explanations[best_exit_name]["Exits"].head(5)
 
@@ -363,7 +337,6 @@ exit_evidence_method = (
     if best_exit_name == "Linear Regression" else "Ranked by tree feature importance."
 )
 
-# Write a calculated final report containing every model result and selected finding.
 lines = [
     "SMART PARKING PREDICTION MODEL SUMMARY", "",
     f"Training Records: {len(train_df)}", f"Testing Records: {len(test_df)}", "",

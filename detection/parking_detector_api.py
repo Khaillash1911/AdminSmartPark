@@ -78,9 +78,6 @@ def _configure_cloudinary():
     return cloudinary
 
 
-# ─────────────────────────────────────────────
-# Health check
-# ─────────────────────────────────────────────
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
@@ -132,9 +129,6 @@ def _lookup_registered_user(db, plate_text: str) -> dict[str, Any] | None:
             user = snapshot.to_dict() or {}
             if _clean_plate_text(str(user.get("car_plate", ""))) == cleaned_plate:
                 matches.append({"uid": user.get("uid") or snapshot.id, **user})
-        # Duplicate/legacy user records can contain the same plate with and
-        # without spaces. Never create an offence if any authoritative match
-        # explicitly authorises the vehicle for OKU parking.
         return next((user for user in matches if user.get("is_oku") is True), matches[0] if matches else None)
     except Exception as exc:
         raise RuntimeError(f"Could not verify OKU registration for {cleaned_plate}") from exc
@@ -319,13 +313,9 @@ def _write_double_park_notification(db, violation: dict[str, Any]) -> bool:
                 not existing_violation.get("resolved")
                 and existing_violation.get("status") != "resolved"
             )
-            # An already-active offence remains one record. If either copy was
-            # resolved independently, reopen both below to keep them in sync.
             if notification_active and violation_active:
                 return True
 
-        # Commit the canonical violation and its notification atomically so a
-        # partial write cannot leave the Violations tab out of sync.
         batch = db.batch()
         batch.set(notification_ref, notification)
         batch.set(violation_ref, violation_record)
@@ -426,7 +416,6 @@ def detect_map():
                 if car_poly.geom_type == "MultiPolygon":
                     car_poly = max(car_poly.geoms, key=lambda geometry: geometry.area)
             else:
-                # Defensive fallback only; the configured model normally always returns masks.
                 car_poly = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
             if car_poly.is_empty or car_poly.area <= 0:
                 continue
@@ -440,9 +429,6 @@ def detect_map():
             for spot_id, spot_poly in parking_polys:
                 intersection_area = car_poly.intersection(spot_poly).area
                 intersection_areas.append((spot_id, intersection_area))
-            # Parking polygons describe only the ground footprint, whereas a
-            # segmentation mask traces the full visible car body. Measure each
-            # bay as a share of the mask area that is actually within any bay.
             total_marked_footprint = sum(area for _, area in intersection_areas)
             overlaps = [
                 (spot_id, area / max(total_marked_footprint, 1))
@@ -451,8 +437,6 @@ def detect_map():
             footprint_ratio = total_marked_footprint / max(car_poly.area, 1)
             return sorted(overlaps, key=lambda item: item[1], reverse=True), footprint_ratio
 
-        # Process every car that has a meaningful part of its traced mask in
-        # the marked parking area. Cars in the unmarked background are ignored.
         relevant_cars = []
         for car_poly, bbox, outline in car_polys:
             overlaps, footprint_ratio = overlap_by_spot(car_poly)
@@ -473,8 +457,6 @@ def detect_map():
                 car_spot_ids = qualifying_spots
                 car_classification = "DOUBLE_PARK"
             elif overlaps and overlaps[0][1] > 0:
-                # At or below 25% in an additional bay is normal parking. Only
-                # the bay containing the largest share of the car is occupied.
                 car_spot_ids = [overlaps[0][0]]
                 car_classification = "NORMAL_PARKING"
             else:

@@ -46,8 +46,6 @@ def authenticate_admin_request():
     try:
         from firebase_admin import auth
 
-        # Initialize the Admin SDK before verifying the token. Vercel starts each
-        # function in a clean process, so no default Firebase app exists yet.
         firestore_client = get_firestore_client()
         decoded = auth.verify_id_token(token, check_revoked=True)
         uid = decoded.get("uid") or decoded.get("sub")
