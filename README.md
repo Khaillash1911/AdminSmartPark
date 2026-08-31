@@ -10,6 +10,10 @@ Firebase stores application data and notifications. Cloudinary stores uploaded p
 
 ## Start here
 
+- [Complete system documentation](docs/SYSTEM_DOCUMENTATION.md) — architecture, every feature flow, data model, AI, research, deployment, security, testing and troubleshooting.
+- [Firestore database schema](docs/FIRESTORE_DATABASE_SCHEMA.json) — every collection, document entity, field type, relationship and integrity rule without database rows.
+- [Model-building chapter LLM guide](docs/MODEL_BUILDING_CHAPTER_LLM_GUIDE.md) — detailed research pipeline, verified results, report structure, tables, figures and a ready-to-use writing prompt.
+
 - [Installation and run instructions](docs/RUNNING.md)
 - [Vercel Hobby deployment](docs/VERCEL.md)
 - [Local AI Quick Tunnel](docs/AI_TUNNEL.md)

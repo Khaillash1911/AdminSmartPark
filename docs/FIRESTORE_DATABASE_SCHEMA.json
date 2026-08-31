@@ -1,0 +1,1205 @@
+{
+  "schemaTitle": "SmartPark APU Firestore Database Schema",
+  "schemaVersion": "1.0.0",
+  "reviewedAgainstSourceCode": "2026-08-26",
+  "databaseType": "Google Cloud Firestore",
+  "scope": "Entity and field definitions inferred from every active Firestore read and write in this repository. No real database rows or secret values are included.",
+  "conventions": {
+    "documentId": "Firestore document identifier; not repeated as a stored field unless explicitly listed",
+    "timestamp": "Firestore Timestamp unless the field explicitly permits ISO-8601 string for legacy compatibility",
+    "nullable": "The field may be stored as null",
+    "required": "Required by the principal creation flow; legacy documents may be incomplete",
+    "normalizedPlate": "Uppercase plate text with formatting removed by the plate-cleaning function",
+    "money": "Malaysian Ringgit (RM)",
+    "binaryStorage": "Images are stored in Cloudinary; Firestore stores URLs, hashes, public IDs, and metadata only"
+  },
+  "externalIdentityService": {
+    "name": "Firebase Authentication",
+    "notAFirestoreCollection": true,
+    "purpose": "Stores authentication credentials and issues Firebase ID tokens",
+    "relationship": "Firebase Authentication UID is the document ID/reference used by admins.uid, users.uid, violations.uid, parking_logs.user_id, and find_my_car.uid"
+  },
+  "collections": {
+    "admins": {
+      "path": "admins/{uid}",
+      "documentId": "Firebase Authentication UID",
+      "purpose": "Authorizes an authenticated Firebase user to access the admin application and protected APIs",
+      "owner": "Admin management/authentication flow",
+      "accessPattern": "Read during login, route authorization and every protected backend request; created by the staff-admin creation flow",
+      "fields": {
+        "uid": {
+          "type": "string",
+          "required": true,
+          "description": "Firebase Authentication UID; normally identical to the document ID"
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Administrator display name"
+        },
+        "email": {
+          "type": "string",
+          "required": true,
+          "description": "Administrator login/contact email"
+        },
+        "role": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "super_admin",
+            "staff"
+          ],
+          "description": "Authorization role accepted by the Python APIs"
+        },
+        "created_at": {
+          "type": "timestamp",
+          "required": false,
+          "description": "Administrator record creation time"
+        }
+      },
+      "relationships": [
+        "uid -> Firebase Authentication user UID"
+      ]
+    },
+    "users": {
+      "path": "users/{uid}",
+      "documentId": "Normally the registered user's Firebase UID",
+      "purpose": "Authoritative registered-user and vehicle profile, including OKU eligibility",
+      "owner": "External/main user-registration system; read and administratively flagged by this repository",
+      "accessPattern": "Real-time list in User Management; plate lookup by ANPR and OKU detection",
+      "fields": {
+        "uid": {
+          "type": "string",
+          "required": true,
+          "description": "Registered user's Firebase UID; legacy records may rely on the document ID instead"
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Registered user's full name"
+        },
+        "email": {
+          "type": "string",
+          "required": true,
+          "description": "Registered user's email address"
+        },
+        "student_id": {
+          "type": "string",
+          "required": true,
+          "description": "APU student identifier"
+        },
+        "car_plate": {
+          "type": "string",
+          "required": true,
+          "description": "Registered vehicle number plate; application comparisons normalize this value"
+        },
+        "car_model": {
+          "type": "string",
+          "required": true,
+          "description": "Vehicle make/model description"
+        },
+        "car_colour": {
+          "type": "string",
+          "required": true,
+          "description": "Vehicle colour"
+        },
+        "is_oku": {
+          "type": "boolean",
+          "required": true,
+          "description": "Authoritative OKU parking eligibility. An OKU violation is triggered only when this value is explicitly false"
+        },
+        "is_flagged": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Administrative user flag shown in User Management"
+        },
+        "created_at": {
+          "type": "timestamp|ISO-8601 string",
+          "required": false,
+          "description": "User registration time used for sorting"
+        }
+      },
+      "relationships": [
+        "uid -> Firebase Authentication user UID",
+        "uid <- parking_logs.user_id",
+        "uid <- find_my_car.uid",
+        "uid <- violations.uid",
+        "car_plate <- find_my_car.car_plate",
+        "car_plate <- violations.car_plate"
+      ],
+      "integrityRules": [
+        "car_plate should be unique after normalization",
+        "email and UID should identify one user",
+        "is_oku must be a real boolean, not a string",
+        "Duplicate plate matches are treated defensively: any explicit is_oku=true match prevents an OKU accusation"
+      ]
+    },
+    "parking_spots": {
+      "path": "parking_spots/{spotId}",
+      "documentId": "Parking spot identifier",
+      "purpose": "Legacy/general spot overview consumed by AnalyticsService",
+      "owner": "External or legacy parking-state producer; this repository contains no active writer",
+      "accessPattern": "Collection read for occupied, available and OKU totals; current dashboard occupancy primarily comes from the parking simulation API",
+      "fields": {
+        "status": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "available",
+            "occupied"
+          ],
+          "description": "Current spot state"
+        },
+        "is_oku": {
+          "type": "boolean",
+          "required": true,
+          "description": "Whether the physical spot is designated for OKU parking"
+        },
+        "car_plate": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Plate occupying the spot when known"
+        }
+      },
+      "relationships": [
+        "car_plate -> users.car_plate when a registered vehicle occupies the spot"
+      ],
+      "status": "Legacy/read-only within this repository"
+    },
+    "parking_logs": {
+      "path": "parking_logs/{logId}",
+      "documentId": "Parking session/log identifier",
+      "purpose": "Parking entry/exit history used for analytics, user history and revenue",
+      "owner": "External parking/session producer; this repository contains no active writer",
+      "accessPattern": "Queried by entry_time, aggregated into daily traffic, filtered by user_id, and used for revenue reports",
+      "fields": {
+        "user_id": {
+          "type": "string",
+          "required": false,
+          "description": "Registered user UID"
+        },
+        "car_plate": {
+          "type": "string",
+          "required": true,
+          "description": "Vehicle number plate"
+        },
+        "entry_time": {
+          "type": "timestamp|ISO-8601 string",
+          "required": true,
+          "description": "Parking entry time and primary analytics query field"
+        },
+        "exit_time": {
+          "type": "timestamp|ISO-8601 string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Parking exit time; null indicates an ongoing session"
+        },
+        "spot_id": {
+          "type": "string",
+          "required": true,
+          "description": "Associated parking spot or slot"
+        },
+        "is_oku_violation": {
+          "type": "boolean",
+          "required": true,
+          "default": false,
+          "description": "Whether the session was associated with an OKU parking violation"
+        },
+        "is_double_park": {
+          "type": "boolean",
+          "required": true,
+          "default": false,
+          "description": "Whether the session was associated with double parking"
+        },
+        "status": {
+          "type": "string",
+          "required": false,
+          "description": "Optional parking-session state from the producing system"
+        }
+      },
+      "relationships": [
+        "user_id -> users/{uid}",
+        "car_plate -> users.car_plate",
+        "spot_id -> parking_spots/{spotId} when that legacy collection is used"
+      ],
+      "queryRequirements": [
+        "entry_time >= selected start date, ordered ascending by entry_time",
+        "User history is currently loaded then filtered by user_id in the client"
+      ]
+    },
+    "parking_maps": {
+      "path": "parking_maps/{imageName}",
+      "documentId": "Uploaded image name",
+      "purpose": "Saved parking source image metadata and administrator-drawn parking-bay polygons",
+      "owner": "Parking Layout Add Parking dialog",
+      "accessPattern": "Written after image marking; listed by the Test Parking Detection dialog",
+      "fields": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Map/image display name and normally the document ID"
+        },
+        "image_url": {
+          "type": "string|null",
+          "required": true,
+          "nullable": true,
+          "format": "HTTPS Cloudinary URL",
+          "description": "Durable source image location"
+        },
+        "cloudinary_public_id": {
+          "type": "string",
+          "required": false,
+          "description": "Cloudinary asset identifier returned during upload"
+        },
+        "image_sha256": {
+          "type": "string",
+          "required": false,
+          "description": "SHA-256 image digest used for deduplication"
+        },
+        "natural_width": {
+          "type": "integer",
+          "required": true,
+          "minimum": 1,
+          "description": "Original image width in pixels"
+        },
+        "natural_height": {
+          "type": "integer",
+          "required": true,
+          "minimum": 1,
+          "description": "Original image height in pixels"
+        },
+        "spots": {
+          "type": "map<string,array<GeoPointLike>>",
+          "required": true,
+          "description": "Map of spot index/identifier to four polygon corner coordinates",
+          "valueSchema": {
+            "type": "array",
+            "itemType": "map",
+            "typicalItem": {
+              "x": "number",
+              "y": "number"
+            }
+          }
+        },
+        "updated_at": {
+          "type": "timestamp",
+          "required": true,
+          "description": "Last polygon-save time"
+        }
+      },
+      "relationships": [
+        "image_url -> Cloudinary asset",
+        "spots -> YOLO detector overlap input"
+      ]
+    },
+    "find_my_car": {
+      "path": "find_my_car/{normalizedPlate}",
+      "documentId": "Normalized confirmed number plate",
+      "purpose": "Confirmed currently parked vehicle, owner snapshot, image references, OCR evidence and generated location",
+      "owner": "Find My Car confirmation flow",
+      "accessPattern": "Written on administrator confirmation; queried by plate; also converted into parking-log-like analytics records",
+      "fields": {
+        "uid": {
+          "type": "string",
+          "required": false,
+          "description": "Matched registered user UID, or supplied owner UID"
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Owner name snapshot"
+        },
+        "email": {
+          "type": "string",
+          "required": true,
+          "description": "Owner email snapshot"
+        },
+        "student_id": {
+          "type": "string",
+          "required": true,
+          "description": "Owner student ID snapshot"
+        },
+        "car_model": {
+          "type": "string",
+          "required": true,
+          "description": "Vehicle model snapshot"
+        },
+        "car_colour": {
+          "type": "string",
+          "required": true,
+          "description": "Vehicle colour snapshot"
+        },
+        "car_plate": {
+          "type": "string",
+          "required": true,
+          "description": "Normalized confirmed number plate"
+        },
+        "car_plate_search": {
+          "type": "string",
+          "required": true,
+          "description": "Normalized plate used for consistent search"
+        },
+        "is_oku": {
+          "type": "boolean",
+          "required": true,
+          "description": "OKU status copied from the authoritative matched user or confirmation data"
+        },
+        "parking_level": {
+          "type": "string",
+          "required": true,
+          "exampleFormat": "Level 1",
+          "description": "Currently simulated parking level"
+        },
+        "parking_zone": {
+          "type": "string",
+          "required": true,
+          "exampleFormat": "Zone A",
+          "description": "Currently simulated parking zone"
+        },
+        "parking_row": {
+          "type": "string",
+          "required": true,
+          "exampleFormat": "Row 1",
+          "description": "Currently simulated parking row"
+        },
+        "parking_slot": {
+          "type": "string",
+          "required": true,
+          "exampleFormat": "A01-01",
+          "description": "Currently simulated internally consistent slot"
+        },
+        "image_url": {
+          "type": "string",
+          "required": true,
+          "format": "HTTPS Cloudinary URL",
+          "description": "Confirmed vehicle image"
+        },
+        "image_sha256": {
+          "type": "string",
+          "required": true,
+          "description": "Image digest used to prevent duplicate registration"
+        },
+        "plate_image_url": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "format": "HTTPS Cloudinary URL",
+          "description": "Detected number-plate crop"
+        },
+        "cloudinary_public_id": {
+          "type": "string",
+          "required": true,
+          "description": "Confirmed vehicle image public ID"
+        },
+        "plate_cloudinary_public_id": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Plate-crop public ID"
+        },
+        "detection_confidence": {
+          "type": "number",
+          "required": true,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "YOLO plate-detection confidence"
+        },
+        "ocr_confidence": {
+          "type": "number",
+          "required": true,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "OCR confidence for selected plate text"
+        },
+        "status": {
+          "type": "string",
+          "required": true,
+          "default": "parked",
+          "description": "Current Find My Car state"
+        },
+        "entry_time": {
+          "type": "ISO-8601 string|timestamp",
+          "required": true,
+          "description": "Parking/confirmation entry time"
+        },
+        "exit_time": {
+          "type": "ISO-8601 string|timestamp|null",
+          "required": true,
+          "nullable": true,
+          "description": "Exit time; initially null"
+        },
+        "source": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "ADMIN_IMAGE_UPLOAD"
+          ],
+          "description": "Record creation source"
+        },
+        "created_at": {
+          "type": "ISO-8601 string|timestamp",
+          "required": true,
+          "description": "Record creation time"
+        },
+        "confirmed_at": {
+          "type": "ISO-8601 string|timestamp",
+          "required": true,
+          "description": "Administrator confirmation time"
+        },
+        "is_oku_violation": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Legacy analytics-compatible violation flag"
+        },
+        "is_double_park": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Legacy analytics-compatible double-parking flag"
+        }
+      },
+      "relationships": [
+        "uid -> users/{uid}",
+        "car_plate -> users.car_plate",
+        "image_url and plate_image_url -> Cloudinary assets"
+      ],
+      "integrityRules": [
+        "Document ID is the normalized plate",
+        "image_sha256 must not already belong to another confirmed record",
+        "Matched users override manually supplied owner and OKU fields"
+      ]
+    },
+    "pending_car_detections": {
+      "path": "pending_car_detections/{confirmationToken}",
+      "documentId": "Random confirmation token returned by ANPR detection",
+      "purpose": "Temporary durable ANPR result awaiting administrator confirmation",
+      "owner": "ANPR detection flow",
+      "lifecycle": "Created after OCR preview; deleted after confirmation/cleanup",
+      "fields": {
+        "original_filename": {
+          "type": "string",
+          "required": true,
+          "description": "Original uploaded filename"
+        },
+        "detection": {
+          "type": "map|null",
+          "required": false,
+          "nullable": true,
+          "description": "Best OCR/YOLO candidate",
+          "fields": {
+            "plate_number": "string",
+            "raw_ocr_text": "string",
+            "detection_confidence": "number",
+            "ocr_confidence": "number",
+            "plate_image_url": "string|null",
+            "bbox": {
+              "x1": "integer",
+              "y1": "integer",
+              "x2": "integer",
+              "y2": "integer"
+            }
+          }
+        },
+        "created_at": {
+          "type": "ISO-8601 string",
+          "required": true,
+          "description": "Pending detection creation time"
+        },
+        "parking_location": {
+          "type": "map",
+          "required": true,
+          "fields": {
+            "parking_level": "string",
+            "parking_zone": "string",
+            "parking_row": "string",
+            "parking_slot": "string"
+          },
+          "description": "Generated location retained between detection and confirmation"
+        },
+        "image_url": {
+          "type": "string",
+          "required": true,
+          "format": "HTTPS Cloudinary URL",
+          "description": "Temporary original image"
+        },
+        "result_image_url": {
+          "type": "string",
+          "required": true,
+          "format": "HTTPS Cloudinary URL",
+          "description": "Temporary annotated detection image"
+        },
+        "plate_image_url": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "format": "HTTPS Cloudinary URL",
+          "description": "Temporary best plate crop"
+        },
+        "image_hash": {
+          "type": "string",
+          "required": true,
+          "description": "SHA-256 digest checked again during confirmation"
+        },
+        "temporary_cloudinary_ids": {
+          "type": "array<string>",
+          "required": true,
+          "description": "Temporary Cloudinary assets deleted during cleanup"
+        }
+      },
+      "relationships": [
+        "On confirmation -> find_my_car/{normalizedPlate}",
+        "image URLs -> temporary Cloudinary assets"
+      ]
+    },
+    "notifications": {
+      "path": "notifications/{violationKey}",
+      "documentId": "Deterministic violation key shared with the canonical violation",
+      "purpose": "Notification-facing copy of a detected parking offence",
+      "owner": "YOLO double-parking and OKU detection services",
+      "accessPattern": "Written alongside violations; updated when an administrator resolves the violation",
+      "fields": {
+        "car_plate": {
+          "type": "string",
+          "required": true,
+          "description": "Detected or matched plate; may be UNKNOWN for unreadable double-parking detections"
+        },
+        "car_plate_search": {
+          "type": "string",
+          "required": true,
+          "description": "Normalized plate"
+        },
+        "type": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "double_park",
+            "oku_violation"
+          ],
+          "description": "Violation category"
+        },
+        "message": {
+          "type": "string",
+          "required": true,
+          "description": "Human-readable notification message"
+        },
+        "spot_id": {
+          "type": "string",
+          "required": true,
+          "description": "Nearest/involved bay, OKU Bay, or Outside marked bays"
+        },
+        "timestamp": {
+          "type": "timestamp",
+          "required": true,
+          "description": "Server-side detection time"
+        },
+        "is_read": {
+          "type": "boolean",
+          "required": true,
+          "default": false,
+          "description": "Notification read/resolution state"
+        },
+        "resolved": {
+          "type": "boolean",
+          "required": true,
+          "default": false,
+          "description": "Whether the offence has been resolved"
+        },
+        "status": {
+          "type": "string",
+          "required": false,
+          "enum": [
+            "active",
+            "read",
+            "resolved"
+          ],
+          "description": "May be added during resolution or migration"
+        },
+        "source": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "YOLO_CAMERA_SIMULATION",
+            "OKU_PLATE_OCR_UPLOAD"
+          ],
+          "description": "Detection workflow that created the notification"
+        },
+        "reason": {
+          "type": "string",
+          "required": true,
+          "description": "Machine-readable detection reason"
+        },
+        "image_source": {
+          "type": "string",
+          "required": false,
+          "description": "Double-parking source image reference"
+        },
+        "image_stem": {
+          "type": "string",
+          "required": false,
+          "description": "Source image basename used in double-parking deduplication"
+        },
+        "image_sha256": {
+          "type": "string",
+          "required": false,
+          "description": "OKU test image digest used in deduplication"
+        },
+        "car_index": {
+          "type": "integer",
+          "required": false,
+          "description": "Detected car index within a double-parking inference result"
+        },
+        "bbox": {
+          "type": "map",
+          "required": false,
+          "fields": {
+            "x1": "integer",
+            "y1": "integer",
+            "x2": "integer",
+            "y2": "integer"
+          },
+          "description": "Vehicle bounding rectangle for double parking"
+        },
+        "overlap_ratio": {
+          "type": "number",
+          "required": false,
+          "description": "Detected parking-bay overlap measurement"
+        },
+        "uid": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Matched owner UID"
+        },
+        "name": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Matched owner name"
+        },
+        "email": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Matched owner email"
+        },
+        "student_id": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Matched owner student ID"
+        }
+      },
+      "relationships": [
+        "Document ID <-> violations/{sameViolationKey}",
+        "uid -> users/{uid}",
+        "car_plate -> users.car_plate"
+      ]
+    },
+    "violations": {
+      "path": "violations/{violationKey}",
+      "documentId": "Same deterministic key as the paired notification",
+      "purpose": "Canonical violation register used by the Violations page, dashboard graphs and navbar badge",
+      "owner": "YOLO double-parking and OKU detection services",
+      "accessPattern": "Real-time listener ordered by timestamp; period analytics queries; resolution updates",
+      "fields": {
+        "notification_id": {
+          "type": "string",
+          "required": true,
+          "description": "Paired notifications document ID; normally identical to this document ID"
+        },
+        "car_plate": {
+          "type": "string",
+          "required": true,
+          "description": "Detected or matched vehicle plate"
+        },
+        "car_plate_search": {
+          "type": "string",
+          "required": true,
+          "description": "Normalized plate"
+        },
+        "type": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "double_park",
+            "oku_violation"
+          ],
+          "description": "Violation category"
+        },
+        "message": {
+          "type": "string",
+          "required": true,
+          "description": "Human-readable violation message"
+        },
+        "spot_id": {
+          "type": "string",
+          "required": true,
+          "description": "Involved or nearest parking bay"
+        },
+        "timestamp": {
+          "type": "timestamp",
+          "required": true,
+          "description": "Detection time"
+        },
+        "is_read": {
+          "type": "boolean",
+          "required": true,
+          "default": false,
+          "description": "Read state; resolution sets this true"
+        },
+        "resolved": {
+          "type": "boolean",
+          "required": true,
+          "default": false,
+          "description": "Canonical active/resolved switch"
+        },
+        "status": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "active",
+            "read",
+            "resolved"
+          ],
+          "description": "Canonical display state"
+        },
+        "source": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "YOLO_CAMERA_SIMULATION",
+            "OKU_PLATE_OCR_UPLOAD"
+          ],
+          "description": "Detection source"
+        },
+        "reason": {
+          "type": "string",
+          "required": true,
+          "description": "Machine-readable detection reason"
+        },
+        "image_source": {
+          "type": "string",
+          "required": false,
+          "description": "Double-parking source image reference"
+        },
+        "image_stem": {
+          "type": "string",
+          "required": false,
+          "description": "Source image basename"
+        },
+        "image_sha256": {
+          "type": "string",
+          "required": false,
+          "description": "OKU source-image digest"
+        },
+        "car_index": {
+          "type": "integer",
+          "required": false,
+          "description": "Vehicle index in detector output"
+        },
+        "bbox": {
+          "type": "map",
+          "required": false,
+          "fields": {
+            "x1": "integer",
+            "y1": "integer",
+            "x2": "integer",
+            "y2": "integer"
+          },
+          "description": "Vehicle bounding rectangle"
+        },
+        "overlap_ratio": {
+          "type": "number",
+          "required": false,
+          "description": "Double-parking overlap measurement"
+        },
+        "uid": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Matched owner UID"
+        },
+        "name": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Matched owner name"
+        },
+        "email": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Matched owner email"
+        },
+        "student_id": {
+          "type": "string|null",
+          "required": false,
+          "nullable": true,
+          "description": "Matched owner student ID"
+        },
+        "resolved_at": {
+          "type": "timestamp|ISO-8601 string",
+          "required": false,
+          "description": "Optional audit timestamp if later resolution logic supplies it"
+        },
+        "resolved_by": {
+          "type": "string",
+          "required": false,
+          "description": "Optional resolving administrator UID if later resolution logic supplies it"
+        }
+      },
+      "relationships": [
+        "notification_id -> notifications/{notification_id}",
+        "uid -> users/{uid}",
+        "car_plate -> users.car_plate"
+      ],
+      "integrityRules": [
+        "Detection writes notifications and violations together",
+        "An already active deterministic key is not duplicated",
+        "Resolution updates both paired documents",
+        "Resolved documents remain for historical graphs but are excluded from active counts"
+      ],
+      "queryRequirements": [
+        "orderBy timestamp descending for the real-time table",
+        "timestamp >= period start plus orderBy timestamp ascending for analytics"
+      ]
+    },
+    "parking_simulation": {
+      "path": "parking_simulation/{documentName}",
+      "documentId": "Fixed document: current or control",
+      "purpose": "Current shared occupancy state and cross-instance simulation lock",
+      "owner": "FirestoreParkingStore",
+      "documents": {
+        "current": {
+          "path": "parking_simulation/current",
+          "fields": {
+            "timestamp": {
+              "type": "timestamp",
+              "required": true,
+              "description": "Snapshot time"
+            },
+            "source": {
+              "type": "string",
+              "required": true,
+              "description": "Parking simulator data source identifier"
+            },
+            "rows": {
+              "type": "array<ParkingRowState>",
+              "required": true,
+              "itemSchema": {
+                "row": "string",
+                "section": "string enum A|B|C",
+                "capacity": "integer",
+                "occupied": "integer",
+                "available": "integer",
+                "occupancyPercentage": "number",
+                "status": "string enum LOW|MEDIUM|HIGH",
+                "entries": "integer",
+                "exits": "integer"
+              }
+            }
+          }
+        },
+        "control": {
+          "path": "parking_simulation/control",
+          "fields": {
+            "lastSimulationAt": {
+              "type": "timestamp",
+              "required": true,
+              "description": "Transaction-protected time of the last accepted simulation tick"
+            }
+          }
+        }
+      },
+      "integrityRules": [
+        "current is replaced atomically with each accepted snapshot",
+        "control prevents multiple browsers/instances from advancing the simulation within the minimum interval"
+      ]
+    },
+    "parking_occupancy_history": {
+      "path": "parking_occupancy_history/{historyId}",
+      "documentId": "Timestamp plus random UUID suffix",
+      "purpose": "Immutable historical occupancy snapshots and movement totals",
+      "owner": "FirestoreParkingStore",
+      "accessPattern": "Ordered by timestamp for history; aggregated by date for week/month traffic and model inputs",
+      "fields": {
+        "timestamp": {
+          "type": "timestamp",
+          "required": true,
+          "description": "Snapshot time"
+        },
+        "date": {
+          "type": "string",
+          "required": true,
+          "format": "YYYY-MM-DD",
+          "description": "Local/calendar date used for daily aggregation"
+        },
+        "source": {
+          "type": "string",
+          "required": true,
+          "description": "Parking simulator data source identifier"
+        },
+        "totalEntries": {
+          "type": "integer",
+          "required": true,
+          "minimum": 0,
+          "description": "Sum of row entries during this simulation tick"
+        },
+        "totalExits": {
+          "type": "integer",
+          "required": true,
+          "minimum": 0,
+          "description": "Sum of row exits during this simulation tick"
+        },
+        "rows": {
+          "type": "array<ParkingRowState>",
+          "required": true,
+          "itemSchema": {
+            "row": "string",
+            "section": "string enum A|B|C",
+            "capacity": "integer",
+            "occupied": "integer",
+            "available": "integer",
+            "occupancyPercentage": "number",
+            "status": "string enum LOW|MEDIUM|HIGH",
+            "entries": "integer",
+            "exits": "integer"
+          }
+        }
+      },
+      "relationships": [
+        "Snapshot of parking_simulation/current",
+        "Input to traffic graphs and research prediction preparation"
+      ],
+      "queryRequirements": [
+        "orderBy timestamp descending with limit for row history",
+        "timestamp >= start, ordered by timestamp for daily traffic"
+      ]
+    },
+    "settings": {
+      "path": "settings/{documentName}",
+      "documentId": "Fixed document: pricing or config",
+      "purpose": "Parking pricing configuration",
+      "documents": {
+        "pricing": {
+          "path": "settings/pricing",
+          "owner": "SettingsService",
+          "usage": "Read and written by the Settings page",
+          "fields": {
+            "free_hours": {
+              "type": "number",
+              "required": true,
+              "minimum": 0,
+              "default": 1,
+              "description": "Free parking duration in hours"
+            },
+            "hourly_rate": {
+              "type": "number",
+              "required": true,
+              "minimum": 0,
+              "default": 1.0,
+              "unit": "RM per hour",
+              "description": "Rate after the free period"
+            },
+            "updated_at": {
+              "type": "timestamp",
+              "required": false,
+              "description": "Last Settings-page update time"
+            },
+            "updated_by": {
+              "type": "string",
+              "required": false,
+              "description": "Intended administrator UID; current UI writes placeholder_admin_id"
+            }
+          }
+        },
+        "config": {
+          "path": "settings/config",
+          "owner": "Legacy/current RevenueService read path",
+          "usage": "Read by dashboard revenue calculation",
+          "fields": {
+            "free_hours": {
+              "type": "number",
+              "required": true,
+              "minimum": 0,
+              "default": 1,
+              "description": "Free parking duration in hours"
+            },
+            "hourly_rate": {
+              "type": "number",
+              "required": true,
+              "minimum": 0,
+              "default": 1.0,
+              "unit": "RM per hour",
+              "description": "Rate after the free period"
+            }
+          }
+        }
+      },
+      "knownIssue": "Settings writes settings/pricing while RevenueService reads settings/config. These documents should be unified before pricing is treated as authoritative."
+    },
+    "system_config": {
+      "path": "system_config/{documentName}",
+      "documentId": "Fixed active document: ai_api",
+      "purpose": "Trusted runtime discovery/configuration documents",
+      "documents": {
+        "ai_api": {
+          "path": "system_config/ai_api",
+          "owner": "scripts/update_ai_runtime.py called by npm run ai:tunnel",
+          "usage": "Angular polls this document every 15 seconds and then verifies gateway health",
+          "fields": {
+            "baseUrl": {
+              "type": "string",
+              "required": false,
+              "format": "HTTPS trycloudflare.com origin or local HTTP origin",
+              "description": "Current public/local AI gateway origin without a trailing slash"
+            },
+            "status": {
+              "type": "string",
+              "required": true,
+              "enum": [
+                "online",
+                "degraded",
+                "offline"
+              ],
+              "description": "Published AI runtime state; tunnel script directly writes online/offline"
+            },
+            "updatedAt": {
+              "type": "timestamp",
+              "required": true,
+              "description": "Server timestamp of the most recent tunnel status publication"
+            }
+          }
+        }
+      },
+      "integrityRules": [
+        "The browser validates baseUrl before use",
+        "A published online state is followed by a live /health request",
+        "Quick Tunnel URLs are temporary and are replaced on restart"
+      ]
+    }
+  },
+  "collectionSummary": [
+    {
+      "collection": "admins",
+      "category": "identity/authorization",
+      "active": true
+    },
+    {
+      "collection": "users",
+      "category": "registered users",
+      "active": true
+    },
+    {
+      "collection": "parking_spots",
+      "category": "legacy spot overview",
+      "active": "read-only/legacy"
+    },
+    {
+      "collection": "parking_logs",
+      "category": "parking sessions",
+      "active": "read-only in this repository"
+    },
+    {
+      "collection": "parking_maps",
+      "category": "parking image maps and polygons",
+      "active": true
+    },
+    {
+      "collection": "find_my_car",
+      "category": "confirmed parked vehicles",
+      "active": true
+    },
+    {
+      "collection": "pending_car_detections",
+      "category": "temporary ANPR workflow",
+      "active": true
+    },
+    {
+      "collection": "notifications",
+      "category": "violation notifications",
+      "active": true
+    },
+    {
+      "collection": "violations",
+      "category": "canonical violations",
+      "active": true
+    },
+    {
+      "collection": "parking_simulation",
+      "category": "current state and control lock",
+      "active": true
+    },
+    {
+      "collection": "parking_occupancy_history",
+      "category": "simulation history",
+      "active": true
+    },
+    {
+      "collection": "settings",
+      "category": "pricing configuration",
+      "active": true
+    },
+    {
+      "collection": "system_config",
+      "category": "AI runtime discovery",
+      "active": true
+    }
+  ],
+  "importantCrossCollectionRules": [
+    "Firebase Authentication UID is the common identity key",
+    "users is authoritative for registered-user and OKU eligibility data",
+    "violations is authoritative for active/resolved violation state and navbar counts",
+    "notifications and violations share the same deterministic document ID and should be written/resolved together",
+    "parking_simulation/current is authoritative for current simulated occupancy",
+    "parking_occupancy_history is append-only history used for traffic aggregation",
+    "Cloudinary is authoritative for image bytes; Firestore holds references",
+    "Number plates must be normalized before equality checks and document lookup"
+  ],
+  "recommendedIndexes": [
+    {
+      "collection": "parking_logs",
+      "fields": [
+        "entry_time ASC"
+      ],
+      "reason": "Period analytics query"
+    },
+    {
+      "collection": "violations",
+      "fields": [
+        "timestamp DESC"
+      ],
+      "reason": "Real-time violations table"
+    },
+    {
+      "collection": "violations",
+      "fields": [
+        "timestamp ASC"
+      ],
+      "reason": "Period analytics query"
+    },
+    {
+      "collection": "parking_occupancy_history",
+      "fields": [
+        "timestamp DESC"
+      ],
+      "reason": "Recent history"
+    },
+    {
+      "collection": "find_my_car",
+      "fields": [
+        "image_sha256 ASC"
+      ],
+      "reason": "Duplicate-image lookup"
+    }
+  ],
+  "knownSchemaIssues": [
+    "settings/pricing and settings/config duplicate the same conceptual entity but are used by different frontend services",
+    "parking_spots and parking_logs are consumed but not produced by active code in this repository",
+    "Some older records may use timestamps while Find My Car currently writes several times as ISO-8601 strings",
+    "Firestore Security Rules and indexes are managed outside this repository and must be documented/exported separately if a complete infrastructure snapshot is required"
+  ]
+}
