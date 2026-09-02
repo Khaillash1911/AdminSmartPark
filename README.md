@@ -60,7 +60,7 @@ Use the demonstration administrator account:
 | Field | Value |
 |---|---|
 | Email | `admin1@apu.com` |
-| Password | `admin234` |
+| Password | `admin123` |
 
 Select **Sign In** to access the SmartPark administration dashboard.
 
