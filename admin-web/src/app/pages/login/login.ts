@@ -208,13 +208,33 @@ export class LoginPage {
       await this.aiRuntime.initialize();
       this.router.navigate(['/admin/dashboard']);
     } catch (error: any) {
-      if (error.message.includes('NOT_AN_ADMIN')) {
-        this.errorMessage = 'Access denied. You do not have administrator privileges.';
-      } else {
-        this.errorMessage = error.message || 'Login failed. Please check your credentials.';
-      }
+      this.errorMessage = this.getLoginErrorMessage(error);
     } finally {
       this.isLoading = false;
+    }
+  }
+
+  private getLoginErrorMessage(error: any): string {
+    if (error?.message?.includes('NOT_AN_ADMIN')) {
+      return 'Access denied. You do not have administrator privileges.';
+    }
+
+    switch (error?.code) {
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+      case 'auth/invalid-email':
+        return 'Incorrect email address or password.';
+      case 'auth/too-many-requests':
+        return 'Too many unsuccessful attempts. Please wait before trying again.';
+      case 'auth/network-request-failed':
+        return 'Unable to contact the authentication service. Check your internet connection and try again.';
+      case 'auth/request-timeout':
+        return 'The sign-in request took too long. Check your connection and try again.';
+      case 'auth/user-disabled':
+        return 'This administrator account has been disabled.';
+      default:
+        return 'Login failed. Please try again.';
     }
   }
 

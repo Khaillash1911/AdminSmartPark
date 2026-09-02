@@ -1,8 +1,11 @@
 import { Injectable } from '@angular/core';
 import { Auth, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, createUserWithEmailAndPassword, user } from '@angular/fire/auth';
+import type { UserCredential } from 'firebase/auth';
 import { Firestore, doc, getDoc, setDoc, serverTimestamp, collection, getDocs } from '@angular/fire/firestore';
 import { Observable, from, of } from 'rxjs';
 import { switchMap, map } from 'rxjs/operators';
+
+const LOGIN_TIMEOUT_MS = 10_000;
 
 export interface AdminUser {
   uid: string;
@@ -28,7 +31,28 @@ export class AdminAuthService {
   }
 
   async adminLogin(email: string, password: string): Promise<AdminUser> {
-    const cred = await signInWithEmailAndPassword(this.auth, email, password);
+    let timedOut = false;
+    let timeoutId: number | undefined;
+    const signInRequest = signInWithEmailAndPassword(this.auth, email, password);
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        const error = new Error('Authentication request timed out.');
+        Object.assign(error, { code: 'auth/request-timeout' });
+        reject(error);
+      }, LOGIN_TIMEOUT_MS);
+    });
+
+    signInRequest.then(() => {
+      if (timedOut) void signOut(this.auth);
+    }).catch(() => undefined);
+
+    let cred: UserCredential;
+    try {
+      cred = await Promise.race([signInRequest, timeout]);
+    } finally {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    }
     const snap = await getDoc(doc(this.firestore, `admins/${cred.user.uid}`));
     if (!snap.exists()) {
       await signOut(this.auth);
