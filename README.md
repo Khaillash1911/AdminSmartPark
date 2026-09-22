@@ -59,8 +59,10 @@ Use the demonstration administrator account:
 
 | Field | Value |
 |---|---|
-| Email | `admin1@apu.com` |
-| Password | `admin123` |
+| Email | Provided separately |
+| Password | Provided separately |
+
+Never publish demonstration credentials in this repository. Share them through a private channel and rotate them after demonstrations.
 
 Select **Sign In** to access the SmartPark administration dashboard.
 

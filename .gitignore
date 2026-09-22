@@ -30,6 +30,15 @@ find_my_car_system/backend/uploads/
 find_my_car_system/backend/static/car_images/
 find_my_car_system/backend/static/plate_crops/
 find_my_car_system/backend/static/results/
+backend/database/
+*.db
+detection/annotated_images/
+detection/plate_crops/
+detection/test_output/
+detection/yolov8n-seg.pt
+daily_outputs/
+monthly_parking/
+admin-web/public/parking-samples/
 
 # Archived/independent projects
 admin-app/
@@ -46,6 +55,11 @@ models/
 research/**/outputs/
 research/**/*.png
 research/**/*.log
+research/parking-analytics/monthly/monthly_parking_cleaned.csv
+research/parking-analytics/monthly/monthly_parking_model_ready*.csv
+
+# Empty temporary files created by local tools
+XX*
 
 # The dashboard runtime depends on these selected trained research artifacts.
 !research/parking-analytics/monthly/outputs/

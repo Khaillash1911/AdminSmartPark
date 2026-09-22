@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { ChangeDetectorRef, Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { AdminAuthService } from '../../core/services/admin-auth.service';
@@ -186,7 +186,8 @@ export class LoginPage {
     private authService: AdminAuthService,
     private adminSession: AdminSessionService,
     private aiRuntime: AiRuntimeConfigService,
-    private router: Router
+    private router: Router,
+    private cdr: ChangeDetectorRef
   ) {
     this.loginForm = this.fb.group({
       email: ['', [Validators.required, Validators.email]],
@@ -211,6 +212,7 @@ export class LoginPage {
       this.errorMessage = this.getLoginErrorMessage(error);
     } finally {
       this.isLoading = false;
+      this.cdr.detectChanges();
     }
   }
 
